@@ -29,9 +29,20 @@ class Program
 
             // Pass .NET object to Python for modification (bidirectional)
             var dotnetObj = new MessageContainer { Message = "Original from .NET" };
+            Console.WriteLine($"\n.NET object before Python modification:");
+            Console.WriteLine($"  Message: {dotnetObj.Message}");
+            Console.WriteLine($"  Counter: {dotnetObj.Counter}");
+            Console.WriteLine($"  Timestamp: {dotnetObj.Timestamp}");
+            Console.WriteLine($"  IsProcessed: {dotnetObj.IsProcessed}");
+            
             dynamic pyObj = dotnetObj.ToPython();
             string modified = sample.process_dotnet_object(pyObj);
-            Console.WriteLine($"Modified message: {modified}");
+            
+            Console.WriteLine($"\n.NET object after Python modification:");
+            Console.WriteLine($"  Message: {dotnetObj.Message}");
+            Console.WriteLine($"  Counter: {dotnetObj.Counter}");
+            Console.WriteLine($"  Timestamp: {dotnetObj.Timestamp}");
+            Console.WriteLine($"  IsProcessed: {dotnetObj.IsProcessed}");
         }
 
         PythonEngine.Shutdown(); 
@@ -41,4 +52,7 @@ class Program
 public class MessageContainer
 {
     public string Message { get; set; } = "";
+    public int Counter { get; set; } = 0;
+    public DateTime Timestamp { get; set; } = DateTime.Now;
+    public bool IsProcessed { get; set; } = false;
 }
