@@ -19,6 +19,22 @@
             "name": ".NET Core Attach",
             "type": "coreclr",
             "request": "attach"
+        },
+        {
+            "name": "Python: Attach to Embedded Script",
+            "type": "python",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/Scripts",
+                    "remoteRoot": "."
+                }
+            ],
+            "justMyCode": false
         }
     ]
 }

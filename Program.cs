@@ -9,7 +9,15 @@ class Program
         // Set path to your Python DLL (adjust based on installation)
         //Runtime.PythonDLL = @"C:\Python312\python312.dll";  // Example path; update as needed
         Runtime.PythonDLL = "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3";  // Replace with the actual path from the Terminal command
-        PythonEngine.Initialize();
+        
+
+        // Disable frozen modules for better debugpy compatibility (Python 3.11+)
+        // This prevents the debugger from missing breakpoints
+        Environment.SetEnvironmentVariable("PYTHONFROZENMODULES", "0");
+        Environment.SetEnvironmentVariable("PYDEVD_DISABLE_FILE_VALIDATION", "1");
+        
+        var args = new string[] { "-X", "frozen_modules=off" };  // Or include script/module if needed
+        PythonEngine.Initialize(args, setSysArgv: true, initSigs: false);
 
         using (Py.GIL())
         {

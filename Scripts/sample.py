@@ -1,3 +1,9 @@
+import os
+import sys
+
+# Debugging utilities for embedded Python
+# To enable PDB interactive debugging, set DEBUG_PYTHON=1 environment variable
+
 import clr
 clr.AddReference("System")
 from System import Console, DateTime
