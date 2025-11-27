@@ -5,6 +5,10 @@ using System.Reflection;
 using Odoo.Core;
 using Odoo.Core.Modules;
 using Odoo.Core.Pipeline;
+// Import typed access to Odoo.Base models (since we reference it directly)
+using Odoo.Base.Models;
+using Odoo.Base.Models.Generated;
+using Odoo.Generated.OdooBase;
 
 namespace Odoo.Examples
 {
@@ -105,46 +109,104 @@ namespace Odoo.Examples
                 }
             }
 
-            // 6. Execute Pipeline Demo
-            Console.WriteLine("\n6. Executing Pipeline: ActionVerify");
+            // ═══════════════════════════════════════════════════════════════════
+            // 6. TYPED vs DYNAMIC API Comparison
+            // ═══════════════════════════════════════════════════════════════════
+            Console.WriteLine("\n6. Record Creation API Comparison:");
+            Console.WriteLine("   ─────────────────────────────────────────────────────────────");
+            
+            // APPROACH A: Dynamic API (Pythonic style)
+            Console.WriteLine("\n   A) Dynamic/Pythonic API (works with dynamically loaded modules):");
+            Console.WriteLine("      var dynamicPartner = env[\"res.partner\"].Create(new {");
+            Console.WriteLine("          name = \"Dynamic Partner\",");
+            Console.WriteLine("          email = \"dynamic@example.com\"");
+            Console.WriteLine("      });");
+            
+            var dynamicPartner = env["res.partner"].Create(new {
+                name = "Dynamic Partner",
+                email = "dynamic@example.com"
+            });
+            Console.WriteLine($"      → Created ID: {dynamicPartner.Id}");
+            
+            // APPROACH B: Strongly-typed API (requires compile-time reference to model)
+            Console.WriteLine("\n   B) Strongly-typed API (compile-time safety, IntelliSense):");
+            Console.WriteLine("      var typedPartner = env.Create(new PartnerBaseValues {");
+            Console.WriteLine("          Name = \"Typed Partner\",");
+            Console.WriteLine("          Email = \"typed@example.com\",");
+            Console.WriteLine("          IsCompany = true");
+            Console.WriteLine("      });");
+            
+            // Since we reference Odoo.Base, we have access to the typed API!
+            var typedPartner = env.Create(new PartnerBaseValues {
+                Name = "Typed Partner",
+                Email = "typed@example.com",
+                IsCompany = true
+            });
+            Console.WriteLine($"      → Created ID: {typedPartner.Id}");
+            Console.WriteLine($"      → Name: {typedPartner.Name}");
+            Console.WriteLine($"      → IsCompany: {typedPartner.IsCompany}");
+
+            // ═══════════════════════════════════════════════════════════════════
+            // 7. Typed Record Access
+            // ═══════════════════════════════════════════════════════════════════
+            Console.WriteLine("\n7. Typed Record Access:");
+            Console.WriteLine("   ─────────────────────────────────────────────────────────────");
+            
+            Console.WriteLine("\n   // Single record with full IntelliSense:");
+            Console.WriteLine("   var partner = env.PartnerBase(typedPartner.Id);");
+            var partner = env.PartnerBase(typedPartner.Id);
+            Console.WriteLine($"   partner.Name      → \"{partner.Name}\"");
+            Console.WriteLine($"   partner.Email     → \"{partner.Email}\"");
+            Console.WriteLine($"   partner.IsCompany → {partner.IsCompany}");
+            
+            Console.WriteLine("\n   // Modify with type safety:");
+            Console.WriteLine("   partner.Email = \"updated@example.com\";");
+            partner.Email = "updated@example.com";
+            Console.WriteLine($"   partner.Email (after update) → \"{partner.Email}\"");
+
+            // ═══════════════════════════════════════════════════════════════════
+            // 8. Typed RecordSet Operations
+            // ═══════════════════════════════════════════════════════════════════
+            Console.WriteLine("\n8. Typed RecordSet Operations:");
+            Console.WriteLine("   ─────────────────────────────────────────────────────────────");
+            
+            // Create a few more partners
+            var partner2 = env.Create(new PartnerBaseValues { Name = "Contact A", IsCompany = false });
+            var partner3 = env.Create(new PartnerBaseValues { Name = "Company B", IsCompany = true });
+            
+            var partners = env.PartnerBases(new[] { typedPartner.Id, partner2.Id, partner3.Id });
+            Console.WriteLine($"\n   var partners = env.PartnerBases(new[] {{ {typedPartner.Id}, {partner2.Id}, {partner3.Id} }});");
+            Console.WriteLine($"   partners.Count → {partners.Count}");
+            
+            Console.WriteLine("\n   // Type-safe LINQ filtering:");
+            Console.WriteLine("   var companies = partners.Where(p => p.IsCompany);");
+            var companies = partners.Where(p => p.IsCompany);
+            Console.WriteLine($"   companies.Count → {companies.Count}");
+            foreach (var c in companies)
+            {
+                Console.WriteLine($"     - {c.Name}");
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // 9. Execute Pipeline Demo with typed RecordSet
+            // ═══════════════════════════════════════════════════════════════════
+            Console.WriteLine("\n9. Pipeline Execution:");
+            Console.WriteLine("   ─────────────────────────────────────────────────────────────");
             Console.WriteLine("   Expected chain: Sale logic -> Base logic");
             
             try
             {
-                // Find the IPartnerBase type from the loaded assemblies
-                var partnerType = loadedModules
-                    .Select(m => m.Assembly?.GetType("Odoo.Base.Models.IPartnerBase"))
-                    .FirstOrDefault(t => t != null);
-
-                if (partnerType == null)
-                {
-                    Console.WriteLine("   Error: Could not find IPartnerBase type.");
-                    return;
-                }
-
-                // Get the record factory
-                var factory = modelRegistry.GetRecordFactory("res.partner");
+                // Create a typed recordset for the pipeline
+                var pipelinePartners = env.PartnerBases(new[] { typedPartner.Id });
                 
-                // Create a test record with some data (Pythonic style!)
-                // This uses the new ModelProxy and dynamic creation API
-                var record = env["res.partner"].Create(new {
-                    name = "Test Partner",
-                    email = "test@example.com"
-                });
-                
-                // Note: Strongly-typed Create API (e.g., env.Create(new PartnerBaseValues { ... }))
-                // is available within addon modules that have the source generator referenced.
-                // Since this demo dynamically loads modules, we use the dynamic API above.
-
-                // Create the recordset using the generic CreateRecordSet method
-                var genericCreateMethod = typeof(OdooEnvironment).GetMethod("CreateRecordSet")!.MakeGenericMethod(partnerType);
-                var recordSet = genericCreateMethod.Invoke(env, new object[] { new[] { record.Id } });
-
                 // Get and invoke the pipeline
                 var pipeline = pipelineRegistry.GetPipeline<Delegate>("res.partner", "action_verify");
                 Console.WriteLine($"   Pipeline delegate type: {pipeline.GetType().Name}");
                 
-                pipeline.DynamicInvoke(recordSet);
+                // Note: Pipeline invocation still requires DynamicInvoke due to the
+                // compiled delegate chain having a dynamic signature. Future enhancement
+                // could generate typed extension methods for pipeline calls.
+                pipeline.DynamicInvoke(pipelinePartners);
                 Console.WriteLine("   ✓ Pipeline executed successfully!");
             }
             catch (Exception ex)
@@ -154,7 +216,25 @@ namespace Odoo.Examples
                     Console.WriteLine($"   Inner: {ex.InnerException.Message}");
             }
 
-            Console.WriteLine("\n=== Demo Complete ===");
+            // ═══════════════════════════════════════════════════════════════════
+            // Summary
+            // ═══════════════════════════════════════════════════════════════════
+            Console.WriteLine("\n╔══════════════════════════════════════════════════════════════╗");
+            Console.WriteLine("║  TYPED API SUMMARY                                           ║");
+            Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
+            Console.WriteLine();
+            Console.WriteLine("  When you reference a module with the source generator:");
+            Console.WriteLine();
+            Console.WriteLine("  ✓ env.Create(new {Model}Values { ... }) - Typed creation");
+            Console.WriteLine("  ✓ env.{Model}(id)                       - Typed single record");
+            Console.WriteLine("  ✓ env.{Models}(ids)                     - Typed RecordSet");
+            Console.WriteLine("  ✓ record.{Property}                     - Typed property access");
+            Console.WriteLine("  ✓ recordset.Where(predicate)            - Type-safe filtering");
+            Console.WriteLine();
+            Console.WriteLine("  Dynamic API (env[\"model\"].Create(...)) is still available");
+            Console.WriteLine("  for interoperability with dynamically loaded modules.");
+            Console.WriteLine();
+            Console.WriteLine("=== Demo Complete ===");
         }
     }
 }

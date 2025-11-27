@@ -29,8 +29,9 @@ class Program
             Console.WriteLine("  3. Run Both Demos");
             Console.WriteLine("  4. Original Python.NET Demo");
             Console.WriteLine("  5. Modularity & Pipeline Demo");
+            Console.WriteLine("  6. Typed API Demo (Source Generator showcase)");
             Console.WriteLine();
-            Console.Write("Enter your choice (1-5): ");
+            Console.Write("Enter your choice (1-6): ");
 
             choice = Console.ReadLine();
         }
@@ -54,6 +55,9 @@ class Program
                 break;
             case "5":
                 RunModularityDemo();
+                break;
+            case "6":
+                RunTypedApiDemo();
                 break;
             default:
                 Console.WriteLine("Invalid choice. Running Basic Demo...");
@@ -172,6 +176,19 @@ class Program
         catch (Exception ex)
         {
             Console.WriteLine($"Error running modularity demo: {ex.Message}");
+            Console.WriteLine(ex.StackTrace);
+        }
+    }
+
+    static void RunTypedApiDemo()
+    {
+        try
+        {
+            TypedApiDemo.RunDemo();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error running typed API demo: {ex.Message}");
             Console.WriteLine(ex.StackTrace);
         }
     }
