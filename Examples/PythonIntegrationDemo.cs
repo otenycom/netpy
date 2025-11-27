@@ -4,6 +4,7 @@ using Odoo.Core;
 using Odoo.Models;
 using Odoo.Generated;
 using Odoo.Python;
+using Python.Runtime;
 
 namespace Odoo.Examples
 {
@@ -56,10 +57,10 @@ namespace Odoo.Examples
                     env,
                     10,
                     "approve");
-                Console.WriteLine($"   Partner ID: {workflowResult.partner_id}");
-                Console.WriteLine($"   Action: {workflowResult.action}");
-                Console.WriteLine($"   New State: {workflowResult.new_state}");
-                Console.WriteLine($"   Success: {workflowResult.success}\n");
+                Console.WriteLine($"   Partner ID: {workflowResult["partner_id"]}");
+                Console.WriteLine($"   Action: {workflowResult["action"]}");
+                Console.WriteLine($"   New State: {workflowResult["new_state"]}");
+                Console.WriteLine($"   Success: {workflowResult["success"]}\n");
 
                 // 7. Batch processing with Python
                 Console.WriteLine("5. Processing partner batch with Python:");
@@ -69,18 +70,22 @@ namespace Odoo.Examples
                     env,
                     new[] { 10, 11, 12 },
                     "validate");
-                Console.WriteLine($"   Processed: {batchResult.processed} partners");
-                Console.WriteLine($"   Operation: {batchResult.operation}");
-                Console.WriteLine($"   Success: {batchResult.success}\n");
+                Console.WriteLine($"   Processed: {batchResult["processed"]} partners");
+                Console.WriteLine($"   Operation: {batchResult["operation"]}");
+                Console.WriteLine($"   Success: {batchResult["success"]}\n");
 
                 // 8. Use Python extension methods
                 Console.WriteLine("6. Using Python extension methods:");
-                var creditScore = moduleLoader.CallFunction<int>(
-                    "odoo_module_sample",
-                    "PartnerExtension.calculate_credit_score",
-                    env,
-                    10);
-                Console.WriteLine($"   Credit Score: {creditScore}\n");
+                using (Py.GIL())
+                {
+                    var pyModule = moduleLoader.LoadModule("odoo_module_sample");
+                    dynamic partnerExtClass = pyModule.GetAttr("PartnerExtension");
+                    dynamic method = partnerExtClass.calculate_credit_score;
+                    using var pyEnv = env.ToPython();
+                    using var pyId = 10.ToPython();
+                    var creditScore = method(pyEnv, pyId).As<int>();
+                    Console.WriteLine($"   Credit Score: {creditScore}\n");
+                }
 
                 // 9. Execute inline Python code
                 Console.WriteLine("7. Executing inline Python code:");

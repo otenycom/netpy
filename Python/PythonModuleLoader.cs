@@ -112,7 +112,26 @@ namespace Odoo.Python
             using (Py.GIL())
             {
                 dynamic func = module.GetAttr(functionName);
-                dynamic result = func.Invoke(args);
+                
+                // Convert arguments to Python objects
+                var pyArgs = new dynamic[args.Length];
+                for (int i = 0; i < args.Length; i++)
+                {
+                    pyArgs[i] = args[i].ToPython();
+                }
+                
+                // Call Python function directly with arguments expanded
+                dynamic result = args.Length switch
+                {
+                    0 => func(),
+                    1 => func(pyArgs[0]),
+                    2 => func(pyArgs[0], pyArgs[1]),
+                    3 => func(pyArgs[0], pyArgs[1], pyArgs[2]),
+                    4 => func(pyArgs[0], pyArgs[1], pyArgs[2], pyArgs[3]),
+                    5 => func(pyArgs[0], pyArgs[1], pyArgs[2], pyArgs[3], pyArgs[4]),
+                    _ => throw new NotSupportedException($"Too many arguments ({args.Length}). Maximum 5 supported.")
+                };
+                
                 return result.As<T>();
             }
         }

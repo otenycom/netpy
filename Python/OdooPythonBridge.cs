@@ -47,12 +47,27 @@ namespace Odoo.Python
             
             using (Py.GIL())
             {
-                // Create a wrapper that includes the environment
-                var wrappedArgs = new List<object> { _environment };
-                wrappedArgs.AddRange(args);
-
                 dynamic method = module.GetAttr(methodName);
-                dynamic result = method.Invoke(wrappedArgs.ToArray());
+                
+                // Build arguments array starting with environment
+                var allArgs = new dynamic[args.Length + 1];
+                allArgs[0] = _environment.ToPython();
+                for (int i = 0; i < args.Length; i++)
+                {
+                    allArgs[i + 1] = args[i].ToPython();
+                }
+                
+                // Call Python function directly with arguments
+                dynamic result = args.Length switch
+                {
+                    0 => method(allArgs[0]),
+                    1 => method(allArgs[0], allArgs[1]),
+                    2 => method(allArgs[0], allArgs[1], allArgs[2]),
+                    3 => method(allArgs[0], allArgs[1], allArgs[2], allArgs[3]),
+                    4 => method(allArgs[0], allArgs[1], allArgs[2], allArgs[3], allArgs[4]),
+                    _ => throw new NotSupportedException($"Too many arguments ({args.Length}). Maximum 4 supported.")
+                };
+                
                 return result.As<T>();
             }
         }
