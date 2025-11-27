@@ -6,6 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnableUnsafeBinaryFormatterSerialization>true</EnableUnsafeBinaryFormatterSerialization>
+    
+    <!-- Emit generated files to disk for inspection -->
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)/Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,5 +19,25 @@
   <ItemGroup>
     <None Include="Scripts\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- Exclude Source Generator files from main project compilation -->
+  <ItemGroup>
+    <Compile Remove="Odoo.SourceGenerator\**" />
+    <EmbeddedResource Remove="Odoo.SourceGenerator\**" />
+    <None Remove="Odoo.SourceGenerator\**" />
+    
+    <!-- Exclude manual sample when generator is enabled -->
+    <Compile Remove="Generated\**" />
+  </ItemGroup>
+
+  <!-- Reference the Source Generator project -->
+  <ItemGroup>
+    <ProjectReference Include="Odoo.SourceGenerator\Odoo.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- Note: Source Generator is now ENABLED. Generated code will appear in obj/Generated/
+       during compilation. The generator files are excluded from compilation in the main project. -->
 
 </Project>

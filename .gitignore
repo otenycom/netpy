@@ -1,6 +1,9 @@
 # .NET build outputs
 bin/
 obj/
+
+# Source Generator output
+obj/Generated/
 *.dll
 *.exe
 *.pdb
