@@ -15,14 +15,13 @@ namespace Odoo.Examples
         {
             Console.WriteLine("=== Odoo ORM Basic Usage Demo ===\n");
 
-            // 1. Create an environment
-            var cache = new SimpleValueCache();
-            var env = new OdooEnvironment(userId: 1, cache: cache);
+            // 1. Create an environment with columnar cache
+            var env = new OdooEnvironment(userId: 1);
 
             Console.WriteLine("1. Created environment for user ID: 1\n");
 
             // 2. Seed some sample data
-            SeedSampleData(cache);
+            SeedSampleData(env.Columns);
 
             // 3. Access a single partner record
             Console.WriteLine("2. Accessing a single partner:");
@@ -41,7 +40,7 @@ namespace Odoo.Examples
             Console.WriteLine($"   Updated Phone: {partner.Phone}");
             
             // Show dirty fields
-            var dirtyFields = cache.GetDirtyFields("res.partner", 10);
+            var dirtyFields = env.Columns.GetDirtyFieldNames("res.partner", Odoo.Generated.ModelSchema.Partner.ModelToken, 10);
             Console.WriteLine($"   Dirty Fields: {string.Join(", ", dirtyFields)}");
             Console.WriteLine();
 
@@ -81,16 +80,16 @@ namespace Odoo.Examples
             Console.WriteLine("7. Creating environment for different user:");
             var userEnv = env.WithUser(2);
             Console.WriteLine($"   New environment user ID: {userEnv.UserId}");
-            Console.WriteLine($"   Same cache: {userEnv.Cache == env.Cache}");
+            Console.WriteLine($"   Same cache: {userEnv.Columns == env.Columns}");
             Console.WriteLine();
 
             Console.WriteLine("=== Demo Complete ===");
         }
 
-        private static void SeedSampleData(SimpleValueCache cache)
+        private static void SeedSampleData(IColumnarCache cache)
         {
             // Partner 10 - Odoo S.A.
-            cache.BulkLoad("res.partner", new()
+            cache.BulkLoadRows("res.partner", Odoo.Generated.ModelSchema.Partner.ModelToken, new()
             {
                 [10] = new()
                 {

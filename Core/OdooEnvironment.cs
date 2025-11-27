@@ -6,20 +6,23 @@ namespace Odoo.Core
     /// <summary>
     /// Concrete implementation of IEnvironment.
     /// Manages the execution context for ORM operations.
+    /// <para>
+    /// <b>THREAD SAFETY:</b> This class is NOT thread-safe.
+    /// It is designed to be used as a scoped service (per request/transaction).
+    /// Do not share instances across threads.
+    /// </para>
     /// </summary>
     public class OdooEnvironment : IEnvironment
     {
         private readonly Dictionary<Type, Delegate> _recordFactories = new();
 
         public int UserId { get; }
-        public IValueCache Cache { get; }
         public IColumnarCache Columns { get; }
 
-        public OdooEnvironment(int userId, IValueCache? cache = null, IColumnarCache? columnarCache = null)
+        public OdooEnvironment(int userId, IColumnarCache? cache = null)
         {
             UserId = userId;
-            Cache = cache ?? new SimpleValueCache();
-            Columns = columnarCache ?? new ColumnarValueCache();
+            Columns = cache ?? new ColumnarValueCache();
         }
 
         public RecordSet<T> GetModel<T>() where T : IOdooRecord
@@ -75,10 +78,14 @@ namespace Odoo.Core
         /// <summary>
         /// Create a new environment with a different user.
         /// Shares the same caches.
+        /// <para>
+        /// <b>WARNING:</b> The returned environment shares the same non-thread-safe cache.
+        /// Do not use the new environment concurrently with the original one.
+        /// </para>
         /// </summary>
         public OdooEnvironment WithUser(int userId)
         {
-            return new OdooEnvironment(userId, Cache, Columns);
+            return new OdooEnvironment(userId, Columns);
         }
 
         /// <summary>
@@ -86,7 +93,7 @@ namespace Odoo.Core
         /// </summary>
         public OdooEnvironment WithNewCache()
         {
-            return new OdooEnvironment(UserId, new SimpleValueCache(), new ColumnarValueCache());
+            return new OdooEnvironment(UserId, new ColumnarValueCache());
         }
     }
 }

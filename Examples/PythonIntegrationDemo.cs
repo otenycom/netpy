@@ -17,12 +17,11 @@ namespace Odoo.Examples
         {
             Console.WriteLine("=== Odoo ORM Python Integration Demo ===\n");
 
-            // 1. Create environment and cache
-            var cache = new SimpleValueCache();
-            var env = new OdooEnvironment(userId: 1, cache: cache);
+            // 1. Create environment with columnar cache
+            var env = new OdooEnvironment(userId: 1);
 
             // Seed sample data
-            SeedSampleData(cache);
+            SeedSampleData(env.Columns);
 
             // 2. Create Python module loader
             var scriptsPath = Path.Combine(Directory.GetCurrentDirectory(), "Scripts");
@@ -105,9 +104,9 @@ result = f'Environment user: {env.UserId}'
             }
         }
 
-        private static void SeedSampleData(SimpleValueCache cache)
+        private static void SeedSampleData(IColumnarCache cache)
         {
-            cache.BulkLoad("res.partner", new()
+            cache.BulkLoadRows("res.partner", Odoo.Generated.ModelSchema.Partner.ModelToken, new()
             {
                 [10] = new()
                 {

@@ -6,6 +6,11 @@ namespace Odoo.Core
     /// <summary>
     /// Columnar cache interface supporting both batch and single-record access.
     /// Optimized for Data-Oriented Design with contiguous memory layout.
+    /// <para>
+    /// <b>THREAD SAFETY:</b> Implementations are NOT expected to be thread-safe.
+    /// The cache is designed to be owned by a single <see cref="IEnvironment"/> context
+    /// and accessed by a single thread (or sequentially).
+    /// </para>
     /// </summary>
     public interface IColumnarCache
     {

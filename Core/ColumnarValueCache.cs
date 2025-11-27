@@ -1,23 +1,28 @@
 using System;
 using System.Buffers;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Odoo.Core
 {
     /// <summary>
     /// High-performance columnar cache implementation using Data-Oriented Design.
     /// Stores data in Structure of Arrays (SoA) format for optimal memory locality.
+    /// <para>
+    /// <b>THREAD SAFETY:</b> This class is explicitly <b>NOT thread-safe</b>.
+    /// It is designed to be used within a single transaction/environment context.
+    /// Sharing this instance across threads without external synchronization will lead to race conditions.
+    /// </para>
     /// </summary>
     public class ColumnarValueCache : IColumnarCache
     {
         // Column storage: (Model, Field) -> ColumnStorage
-        private readonly ConcurrentDictionary<(int ModelToken, int FieldToken), IColumnStorage> _columns = new();
+        private readonly Dictionary<(int ModelToken, int FieldToken), IColumnStorage> _columns = new();
         
         // Dirty tracking: (Model, Record ID) -> Set of Field Tokens
-        private readonly ConcurrentDictionary<(int ModelToken, int RecordId), HashSet<int>> _dirtyFields = new();
+        private readonly Dictionary<(int ModelToken, int RecordId), HashSet<int>> _dirtyFields = new();
 
         // --- Batch Operations ---
 
@@ -41,7 +46,12 @@ namespace Odoo.Core
                 throw new ArgumentException("IDs and values must have same length");
 
             var key = (model.Token, field.Token);
-            var storage = _columns.GetOrAdd(key, _ => new ColumnStorage<T>());
+            
+            if (!_columns.TryGetValue(key, out var storage))
+            {
+                storage = new ColumnStorage<T>();
+                _columns[key] = storage;
+            }
             
             storage.SetValues(ids, values);
 
@@ -69,7 +79,12 @@ namespace Odoo.Core
         public void SetValue<T>(ModelHandle model, int id, FieldHandle field, T value)
         {
             var key = (model.Token, field.Token);
-            var storage = _columns.GetOrAdd(key, _ => new ColumnStorage<T>());
+            
+            if (!_columns.TryGetValue(key, out var storage))
+            {
+                storage = new ColumnStorage<T>();
+                _columns[key] = storage;
+            }
             
             storage.SetSingleValue(id, value);
         }
@@ -108,12 +123,14 @@ namespace Odoo.Core
         private void MarkDirtyInternal(int modelToken, int recordId, int fieldToken)
         {
             var key = (modelToken, recordId);
-            var fields = _dirtyFields.GetOrAdd(key, _ => new HashSet<int>());
             
-            lock (fields)
+            if (!_dirtyFields.TryGetValue(key, out var fields))
             {
-                fields.Add(fieldToken);
+                fields = new HashSet<int>();
+                _dirtyFields[key] = fields;
             }
+            
+            fields.Add(fieldToken);
         }
 
         public IEnumerable<FieldHandle> GetDirtyFields(ModelHandle model, int id)
@@ -122,10 +139,7 @@ namespace Odoo.Core
             
             if (_dirtyFields.TryGetValue(key, out var fields))
             {
-                lock (fields)
-                {
-                    return fields.Select(token => new FieldHandle(token)).ToList();
-                }
+                return fields.Select(token => new FieldHandle(token)).ToList();
             }
 
             return Enumerable.Empty<FieldHandle>();
@@ -134,7 +148,7 @@ namespace Odoo.Core
         public void ClearDirty(ModelHandle model, int id)
         {
             var key = (model.Token, id);
-            _dirtyFields.TryRemove(key, out _);
+            _dirtyFields.Remove(key);
         }
 
         // --- Cache Management ---
@@ -151,14 +165,14 @@ namespace Odoo.Core
             var keysToRemove = _columns.Keys.Where(k => k.ModelToken == model.Token).ToList();
             foreach (var key in keysToRemove)
             {
-                _columns.TryRemove(key, out _);
+                _columns.Remove(key);
             }
 
             // Clear dirty tracking for this model
             var dirtyKeysToRemove = _dirtyFields.Keys.Where(k => k.ModelToken == model.Token).ToList();
             foreach (var key in dirtyKeysToRemove)
             {
-                _dirtyFields.TryRemove(key, out _);
+                _dirtyFields.Remove(key);
             }
         }
 
@@ -174,7 +188,12 @@ namespace Odoo.Core
                 return;
 
             var key = (model.Token, field.Token);
-            var storage = _columns.GetOrAdd(key, _ => new ColumnStorage<T>());
+            
+            if (!_columns.TryGetValue(key, out var storage))
+            {
+                storage = new ColumnStorage<T>();
+                _columns[key] = storage;
+            }
 
             foreach (var (id, value) in values)
             {

@@ -46,11 +46,11 @@ class Program
                 break;
         }
 
-        Console.WriteLine("\nPress any key to exit...");
-        if (!Console.IsInputRedirected)
-        {
-            Console.ReadKey();
-        }
+        // Console.WriteLine("\nPress any key to exit...");
+        // if (!Console.IsInputRedirected)
+        // {
+        //     Console.ReadKey();
+        // }
     }
 
     static void RunBasicDemo()

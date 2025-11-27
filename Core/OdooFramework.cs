@@ -30,45 +30,6 @@ namespace Odoo.Core
         public OdooFieldAttribute(string technicalName) => TechnicalName = technicalName;
     }
 
-    // --- The Cache / Data Layer ---
-
-    /// <summary>
-    /// The centralized data store. This interacts with the database/backend
-    /// and maintains transactional dirty state.
-    /// </summary>
-    public interface IValueCache
-    {
-        /// <summary>
-        /// Retrieve a value from the cache for a specific model/record/field.
-        /// </summary>
-        T GetValue<T>(string model, int id, string field);
-        
-        /// <summary>
-        /// Store a value in the cache for a specific model/record/field.
-        /// </summary>
-        void SetValue<T>(string model, int id, string field, T value);
-        
-        /// <summary>
-        /// Check if a value exists in the cache.
-        /// </summary>
-        bool HasValue(string model, int id, string field);
-        
-        /// <summary>
-        /// Mark a field as dirty (modified).
-        /// </summary>
-        void MarkDirty(string model, int id, string field);
-        
-        /// <summary>
-        /// Get all dirty fields for a record.
-        /// </summary>
-        IEnumerable<string> GetDirtyFields(string model, int id);
-        
-        /// <summary>
-        /// Clear dirty state for a record.
-        /// </summary>
-        void ClearDirty(string model, int id);
-    }
-
     // --- The Environment ---
 
     /// <summary>
@@ -81,11 +42,6 @@ namespace Odoo.Core
         /// The current user ID.
         /// </summary>
         int UserId { get; }
-        
-        /// <summary>
-        /// The value cache for data storage (legacy row-based access).
-        /// </summary>
-        IValueCache Cache { get; }
         
         /// <summary>
         /// The columnar cache for high-performance batch operations.
