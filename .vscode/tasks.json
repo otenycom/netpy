@@ -7,7 +7,19 @@
             "type": "process",
             "args": [
                 "build",
-                "${workspaceFolder}/netpy.csproj",
+                "${workspaceFolder}/samples/Odoo.Demo/Odoo.Demo.csproj",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary;ForceNoAlign"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build-all",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "build",
+                "${workspaceFolder}/netpy.slnx",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary;ForceNoAlign"
             ],
@@ -19,7 +31,7 @@
             "type": "process",
             "args": [
                 "publish",
-                "${workspaceFolder}/netpy.csproj",
+                "${workspaceFolder}/samples/Odoo.Demo/Odoo.Demo.csproj",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary;ForceNoAlign"
             ],
@@ -33,7 +45,7 @@
                 "watch",
                 "run",
                 "--project",
-                "${workspaceFolder}/netpy.csproj"
+                "${workspaceFolder}/samples/Odoo.Demo/Odoo.Demo.csproj"
             ],
             "problemMatcher": "$msCompile"
         }

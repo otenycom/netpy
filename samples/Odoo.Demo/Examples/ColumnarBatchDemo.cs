@@ -2,9 +2,9 @@ using System;
 using System.Diagnostics;
 using System.Linq;
 using Odoo.Core;
-using Odoo.Models;
-using Odoo.Models.Generated;
-using Odoo.Generated;
+using Odoo.Base.Models;
+using Odoo.Base.Models.Generated;
+using Odoo.Generated.OdooBase;
 
 namespace Odoo.Examples
 {
@@ -56,21 +56,21 @@ namespace Odoo.Examples
                 id => id,
                 id => $"Partner {id}"
             );
-            env.Columns.BulkLoad(ModelSchema.Partner.ModelToken, ModelSchema.Partner.Name, names);
+            env.Columns.BulkLoad(ModelSchema.PartnerBase.ModelToken, ModelSchema.PartnerBase.Name, names);
 
             // Load emails
             var emails = partnerIds.ToDictionary(
                 id => id,
                 id => $"partner{id}@example.com"
             );
-            env.Columns.BulkLoad(ModelSchema.Partner.ModelToken, ModelSchema.Partner.Email, emails);
+            env.Columns.BulkLoad(ModelSchema.PartnerBase.ModelToken, ModelSchema.PartnerBase.Email, emails);
 
             // Load IsCompany flags
             var isCompanyFlags = partnerIds.ToDictionary(
                 id => id,
                 id => id % 3 == 0 // Every 3rd partner is a company
             );
-            env.Columns.BulkLoad(ModelSchema.Partner.ModelToken, ModelSchema.Partner.IsCompany, isCompanyFlags);
+            env.Columns.BulkLoad(ModelSchema.PartnerBase.ModelToken, ModelSchema.PartnerBase.IsCompany, isCompanyFlags);
 
             Console.WriteLine($"Loaded {partnerIds.Length} partners into columnar cache\n");
         }
@@ -78,7 +78,7 @@ namespace Odoo.Examples
         private static void SingleRecordAccessDemo(OdooEnvironment env)
         {
             // Access a single partner using the new optimized path
-            var partner = env.Partner(1);
+            var partner = env.PartnerBase(1);
             
             Console.WriteLine($"  Partner ID: {partner.Id}");
             Console.WriteLine($"  Name: {partner.Name}");
@@ -93,7 +93,7 @@ namespace Odoo.Examples
         private static void TraditionalIterationDemo(OdooEnvironment env)
         {
             var partnerIds = Enumerable.Range(1, 10).ToArray();
-            var partners = env.Partners(partnerIds);
+            var partners = env.PartnerBases(partnerIds);
 
             Console.WriteLine($"  Processing {partners.Count} partners (traditional way):");
             
@@ -117,7 +117,7 @@ namespace Odoo.Examples
             Console.WriteLine($"  Processing {partnerIds.Length} partners (optimized batch way):");
             
             // Create batch context on the stack
-            var batch = new PartnerBatchContext(env.Columns, partnerIds);
+            var batch = new PartnerBaseBatchContext(env.Columns, partnerIds);
 
             int companyCount = 0;
             for (int i = 0; i < partnerIds.Length; i++)
@@ -148,7 +148,7 @@ namespace Odoo.Examples
             var sw = Stopwatch.StartNew();
             for (int iter = 0; iter < iterations; iter++)
             {
-                var partners = env.Partners(partnerIds);
+                var partners = env.PartnerBases(partnerIds);
                 int count = 0;
                 foreach (var partner in partners)
                 {
@@ -167,7 +167,7 @@ namespace Odoo.Examples
             sw.Restart();
             for (int iter = 0; iter < iterations; iter++)
             {
-                var batch = new PartnerBatchContext(env.Columns, partnerIds);
+                var batch = new PartnerBaseBatchContext(env.Columns, partnerIds);
                 int count = 0;
                 
                 var nameColumn = batch.GetNameColumn();
@@ -201,7 +201,7 @@ namespace Odoo.Examples
         {
             Console.WriteLine("\n=== Advanced Batch Calculation Example ===\n");
 
-            var batch = new PartnerBatchContext(env.Columns, partnerIds);
+            var batch = new PartnerBaseBatchContext(env.Columns, partnerIds);
             
             // Pre-load all needed columns (triggers single batch fetch)
             var names = batch.GetNameColumn();

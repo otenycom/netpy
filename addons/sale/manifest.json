@@ -1,0 +1,7 @@
+{
+  "name": "sale",
+  "version": "1.0.0",
+  "depends": [ "base" ],
+  "description": "Sales management module",
+  "assemblyPath": "bin/Debug/net10.0/Odoo.Sale.dll"
+}

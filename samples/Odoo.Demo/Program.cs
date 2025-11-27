@@ -12,16 +12,28 @@ class Program
         Console.WriteLine("╚════════════════════════════════════════════════════════════╝");
         Console.WriteLine();
 
-        // Show menu
-        Console.WriteLine("Select a demo to run:");
-        Console.WriteLine("  1. Basic ORM Usage (without Python)");
-        Console.WriteLine("  2. Python Integration Demo");
-        Console.WriteLine("  3. Run Both Demos");
-        Console.WriteLine("  4. Original Python.NET Demo");
-        Console.WriteLine();
-        Console.Write("Enter your choice (1-4): ");
+        string? choice;
+        
+        // Check if choice was provided via command line
+        if (args.Length > 0)
+        {
+            choice = args[0];
+            Console.WriteLine($"Running demo: {choice}");
+        }
+        else
+        {
+            // Show interactive menu
+            Console.WriteLine("Select a demo to run:");
+            Console.WriteLine("  1. Basic ORM Usage (without Python)");
+            Console.WriteLine("  2. Python Integration Demo");
+            Console.WriteLine("  3. Run Both Demos");
+            Console.WriteLine("  4. Original Python.NET Demo");
+            Console.WriteLine("  5. Modularity & Pipeline Demo");
+            Console.WriteLine();
+            Console.Write("Enter your choice (1-5): ");
 
-        var choice = Console.ReadLine();
+            choice = Console.ReadLine();
+        }
         Console.WriteLine();
 
         switch (choice)
@@ -39,6 +51,9 @@ class Program
                 break;
             case "4":
                 RunOriginalDemo();
+                break;
+            case "5":
+                RunModularityDemo();
                 break;
             default:
                 Console.WriteLine("Invalid choice. Running Basic Demo...");
@@ -145,6 +160,19 @@ class Program
         catch (Exception ex)
         {
             Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    static void RunModularityDemo()
+    {
+        try
+        {
+            ModularityDemo.RunDemo();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error running modularity demo: {ex.Message}");
+            Console.WriteLine(ex.StackTrace);
         }
     }
 }

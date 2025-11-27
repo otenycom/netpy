@@ -1,3 +1,14 @@
 <Solution>
-  <Project Path="netpy.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src/Odoo.Core/Odoo.Core.csproj" />
+    <Project Path="src/Odoo.Python/Odoo.Python.csproj" />
+    <Project Path="src/Odoo.SourceGenerator/Odoo.SourceGenerator.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Odoo.Demo/Odoo.Demo.csproj" />
+  </Folder>
+  <Folder Name="/addons/">
+    <Project Path="addons/base/Odoo.Base.csproj" />
+    <Project Path="addons/sale/Odoo.Sale.csproj" />
+  </Folder>
 </Solution>

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Odoo.Core.Modules;
+using Odoo.Core.Pipeline;
 
 namespace Odoo.Core
 {
@@ -15,14 +17,19 @@ namespace Odoo.Core
     public class OdooEnvironment : IEnvironment
     {
         private readonly Dictionary<Type, Delegate> _recordFactories = new();
+        private readonly ModelRegistry? _modelRegistry;
+        private readonly PipelineRegistry _pipelineRegistry;
 
         public int UserId { get; }
         public IColumnarCache Columns { get; }
+        public IPipelineBuilder Methods => _pipelineRegistry;
 
-        public OdooEnvironment(int userId, IColumnarCache? cache = null)
+        public OdooEnvironment(int userId, IColumnarCache? cache = null, ModelRegistry? modelRegistry = null, PipelineRegistry? pipelineRegistry = null)
         {
             UserId = userId;
             Columns = cache ?? new ColumnarValueCache();
+            _modelRegistry = modelRegistry;
+            _pipelineRegistry = pipelineRegistry ?? new PipelineRegistry();
         }
 
         public RecordSet<T> GetModel<T>() where T : IOdooRecord
@@ -41,7 +48,7 @@ namespace Odoo.Core
         /// Register a custom factory for creating record instances.
         /// This is used by the generated code to register record constructors.
         /// </summary>
-        public void RegisterFactory<T>(string modelName, Func<IEnvironment, int, T> factory) 
+        public void RegisterFactory<T>(string modelName, Func<IEnvironment, int, T> factory)
             where T : IOdooRecord
         {
             _recordFactories[typeof(T)] = factory;
@@ -52,6 +59,23 @@ namespace Odoo.Core
             if (_recordFactories.TryGetValue(typeof(T), out var factory))
             {
                 return (Func<IEnvironment, int, T>)factory;
+            }
+
+            // Try to get from registry if available
+            var modelName = GetModelName<T>();
+            if (_modelRegistry != null)
+            {
+                try
+                {
+                    var registryFactory = _modelRegistry.GetRecordFactory(modelName);
+                    // We need to cast the generic IOdooRecord return type to T
+                    // This assumes the factory actually produces T, which it should if T is the interface
+                    return (env, id) => (T)registryFactory(env, id);
+                }
+                catch (KeyNotFoundException)
+                {
+                    // Fall through to error
+                }
             }
 
             // Default factory - this will be replaced by generated code
@@ -85,7 +109,7 @@ namespace Odoo.Core
         /// </summary>
         public OdooEnvironment WithUser(int userId)
         {
-            return new OdooEnvironment(userId, Columns);
+            return new OdooEnvironment(userId, Columns, _modelRegistry, _pipelineRegistry);
         }
 
         /// <summary>
@@ -93,7 +117,7 @@ namespace Odoo.Core
         /// </summary>
         public OdooEnvironment WithNewCache()
         {
-            return new OdooEnvironment(UserId, new ColumnarValueCache());
+            return new OdooEnvironment(UserId, new ColumnarValueCache(), _modelRegistry, _pipelineRegistry);
         }
     }
 }

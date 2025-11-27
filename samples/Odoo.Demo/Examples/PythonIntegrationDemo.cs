@@ -1,8 +1,8 @@
 using System;
 using System.IO;
 using Odoo.Core;
-using Odoo.Models;
-using Odoo.Generated;
+using Odoo.Base.Models;
+using Odoo.Generated.OdooBase;
 using Odoo.Python;
 using Python.Runtime;
 
@@ -106,32 +106,25 @@ result = f'Environment user: {env.UserId}'
 
         private static void SeedSampleData(IColumnarCache cache)
         {
-            cache.BulkLoadRows("res.partner", Odoo.Generated.ModelSchema.Partner.ModelToken, new()
+            cache.BulkLoadRows("res.partner", ModelSchema.PartnerBase.ModelToken, new()
             {
                 [10] = new()
                 {
                     ["name"] = "Odoo S.A.",
                     ["email"] = "info@odoo.com",
-                    ["is_company"] = true,
-                    ["street"] = "Chaussée de Namur 40",
-                    ["city"] = "Ramillies",
-                    ["active"] = true
+                    ["is_company"] = true
                 },
                 [11] = new()
                 {
                     ["name"] = "Mitchell Admin",
                     ["email"] = "admin@example.com",
-                    ["is_company"] = false,
-                    ["parent_id"] = 10,
-                    ["active"] = true
+                    ["is_company"] = false
                 },
                 [12] = new()
                 {
                     ["name"] = "Azure Interior",
                     ["email"] = "azure@example.com",
-                    ["is_company"] = true,
-                    ["parent_id"] = 10,
-                    ["active"] = true
+                    ["is_company"] = true
                 }
             });
         }

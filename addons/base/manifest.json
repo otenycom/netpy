@@ -1,0 +1,6 @@
+{
+  "name": "base",
+  "version": "1.0.0",
+  "description": "Base module containing core models",
+  "assemblyPath": "bin/Debug/net10.0/Odoo.Base.dll"
+}

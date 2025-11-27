@@ -48,6 +48,11 @@ namespace Odoo.Core
         /// This is the preferred cache for new code.
         /// </summary>
         IColumnarCache Columns { get; }
+
+        /// <summary>
+        /// The pipeline registry for method overrides.
+        /// </summary>
+        Pipeline.IPipelineBuilder Methods { get; }
         
         /// <summary>
         /// Factory method to get a recordset wrapper for a specific interface.
