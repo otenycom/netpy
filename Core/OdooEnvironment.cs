@@ -13,11 +13,13 @@ namespace Odoo.Core
 
         public int UserId { get; }
         public IValueCache Cache { get; }
+        public IColumnarCache Columns { get; }
 
-        public OdooEnvironment(int userId, IValueCache? cache = null)
+        public OdooEnvironment(int userId, IValueCache? cache = null, IColumnarCache? columnarCache = null)
         {
             UserId = userId;
             Cache = cache ?? new SimpleValueCache();
+            Columns = columnarCache ?? new ColumnarValueCache();
         }
 
         public RecordSet<T> GetModel<T>() where T : IOdooRecord
@@ -72,19 +74,19 @@ namespace Odoo.Core
 
         /// <summary>
         /// Create a new environment with a different user.
-        /// Shares the same cache.
+        /// Shares the same caches.
         /// </summary>
         public OdooEnvironment WithUser(int userId)
         {
-            return new OdooEnvironment(userId, Cache);
+            return new OdooEnvironment(userId, Cache, Columns);
         }
 
         /// <summary>
-        /// Create a copy of the environment with a fresh cache.
+        /// Create a copy of the environment with fresh caches.
         /// </summary>
         public OdooEnvironment WithNewCache()
         {
-            return new OdooEnvironment(UserId, new SimpleValueCache());
+            return new OdooEnvironment(UserId, new SimpleValueCache(), new ColumnarValueCache());
         }
     }
 }

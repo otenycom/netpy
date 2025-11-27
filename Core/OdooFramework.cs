@@ -83,9 +83,15 @@ namespace Odoo.Core
         int UserId { get; }
         
         /// <summary>
-        /// The value cache for data storage.
+        /// The value cache for data storage (legacy row-based access).
         /// </summary>
         IValueCache Cache { get; }
+        
+        /// <summary>
+        /// The columnar cache for high-performance batch operations.
+        /// This is the preferred cache for new code.
+        /// </summary>
+        IColumnarCache Columns { get; }
         
         /// <summary>
         /// Factory method to get a recordset wrapper for a specific interface.
@@ -179,6 +185,23 @@ namespace Odoo.Core
         {
             foreach (var id in Ids)
                 yield return selector(_recordFactory(Env, id));
+        }
+
+        /// <summary>
+        /// Optimized batch iteration using columnar access.
+        /// This method is significantly faster than traditional foreach for large recordsets.
+        /// Use when you need to process many records and access multiple fields.
+        /// </summary>
+        /// <param name="action">Action to perform on each record</param>
+        /// <remarks>
+        /// This method will be implemented by generated code to use batch contexts.
+        /// The default implementation falls back to traditional iteration.
+        /// </remarks>
+        public void ForEachBatch(Action<T> action)
+        {
+            // Default implementation - will be overridden by generated extension methods
+            foreach (var record in this)
+                action(record);
         }
     }
 
