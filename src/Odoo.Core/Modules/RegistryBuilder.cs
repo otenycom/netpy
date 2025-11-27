@@ -22,8 +22,14 @@ namespace Odoo.Core.Modules
 
                 if (!_models.TryGetValue(modelName, out var schema))
                 {
-                    // Use stable hash for model token
-                    var modelToken = new ModelHandle(GetStableHashCode(modelName));
+                    // Try to find generated token first
+                    var modelToken = ResolveModelToken(assembly, modelName);
+                    if (modelToken.Token == 0)
+                    {
+                        // Fallback to stable hash
+                        modelToken = new ModelHandle(GetStableHashCode(modelName));
+                    }
+
                     schema = new ModelSchema(modelName, modelToken);
                     _models[modelName] = schema;
                 }
@@ -44,8 +50,13 @@ namespace Odoo.Core.Modules
                         
                         if (!schema.Fields.ContainsKey(fieldName))
                         {
-                            // Use stable hash for field token
-                            var fieldToken = new FieldHandle(GetStableHashCode($"{modelName}.{fieldName}"));
+                            // Try to find generated token first
+                            var fieldToken = ResolveFieldToken(assembly, modelName, prop.Name);
+                            if (fieldToken.Token == 0)
+                            {
+                                // Fallback to stable hash
+                                fieldToken = new FieldHandle(GetStableHashCode($"{modelName}.{fieldName}"));
+                            }
                             
                             var fieldSchema = new FieldSchema(
                                 fieldName,
@@ -78,6 +89,60 @@ namespace Odoo.Core.Modules
                 }
                 return hash;
             }
+        }
+
+        private ModelHandle ResolveModelToken(Assembly assembly, string modelName)
+        {
+            // Try to find Odoo.Generated.{SafeAssemblyName}.ModelSchema
+            var safeName = assembly.GetName().Name!.Replace(".", "");
+            var schemaType = assembly.GetType($"Odoo.Generated.{safeName}.ModelSchema");
+            
+            if (schemaType != null)
+            {
+                // Find nested class for model
+                // The generator uses the interface name minus 'I' as the class name
+                // But here we only have modelName (e.g. "res.partner")
+                // We need to map modelName back to class name, or search all nested types
+                
+                foreach (var nestedType in schemaType.GetNestedTypes())
+                {
+                    var nameField = nestedType.GetField("ModelName");
+                    if (nameField != null && nameField.GetValue(null) as string == modelName)
+                    {
+                        var tokenField = nestedType.GetField("ModelToken");
+                        if (tokenField != null)
+                        {
+                            return (ModelHandle)tokenField.GetValue(null)!;
+                        }
+                    }
+                }
+            }
+            
+            return default;
+        }
+
+        private FieldHandle ResolveFieldToken(Assembly assembly, string modelName, string propertyName)
+        {
+            var safeName = assembly.GetName().Name!.Replace(".", "");
+            var schemaType = assembly.GetType($"Odoo.Generated.{safeName}.ModelSchema");
+            
+            if (schemaType != null)
+            {
+                foreach (var nestedType in schemaType.GetNestedTypes())
+                {
+                    var nameField = nestedType.GetField("ModelName");
+                    if (nameField != null && nameField.GetValue(null) as string == modelName)
+                    {
+                        var fieldTokenField = nestedType.GetField(propertyName);
+                        if (fieldTokenField != null)
+                        {
+                            return (FieldHandle)fieldTokenField.GetValue(null)!;
+                        }
+                    }
+                }
+            }
+            
+            return default;
         }
     }
 }

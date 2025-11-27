@@ -101,7 +101,7 @@ namespace Odoo.Examples
                 Console.WriteLine($"     Fields: {model.Fields.Count}");
                 foreach (var field in model.Fields.Values.OrderBy(f => f.FieldName))
                 {
-                    Console.WriteLine($"       - {field.FieldName}: {field.FieldType.Name} (from {field.ContributingInterface.Name})");
+                    Console.WriteLine($"       - {field.FieldName}: {field.FieldType.Name} [Token: Field({field.Token.Token})] (from {field.ContributingInterface.Name})");
                 }
             }
 
@@ -125,17 +125,20 @@ namespace Odoo.Examples
                 // Get the record factory
                 var factory = modelRegistry.GetRecordFactory("res.partner");
                 
-                // Create a test record with some data
-                var modelSchema = modelRegistry.GetModel("res.partner")!;
-                env.Columns.BulkLoad(
-                    modelSchema.Token,
-                    new FieldHandle(1), // name field token
-                    new System.Collections.Generic.Dictionary<int, string> { { 1, "Test Partner" } }
-                );
+                // Create a test record with some data (Pythonic style!)
+                // This uses the new ModelProxy and dynamic creation API
+                var record = env["res.partner"].Create(new {
+                    name = "Test Partner",
+                    email = "test@example.com"
+                });
+                
+                // Note: Strongly-typed Create API (e.g., env.Create(new PartnerBaseValues { ... }))
+                // is available within addon modules that have the source generator referenced.
+                // Since this demo dynamically loads modules, we use the dynamic API above.
 
                 // Create the recordset using the generic CreateRecordSet method
                 var genericCreateMethod = typeof(OdooEnvironment).GetMethod("CreateRecordSet")!.MakeGenericMethod(partnerType);
-                var recordSet = genericCreateMethod.Invoke(env, new object[] { new[] { 1 } });
+                var recordSet = genericCreateMethod.Invoke(env, new object[] { new[] { record.Id } });
 
                 // Get and invoke the pipeline
                 var pipeline = pipelineRegistry.GetPipeline<Delegate>("res.partner", "action_verify");

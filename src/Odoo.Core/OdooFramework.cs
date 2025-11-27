@@ -50,6 +50,11 @@ namespace Odoo.Core
         IColumnarCache Columns { get; }
 
         /// <summary>
+        /// The ID generator for creating new records.
+        /// </summary>
+        IdGenerator IdGenerator { get; }
+
+        /// <summary>
         /// The pipeline registry for method overrides.
         /// </summary>
         Pipeline.IPipelineBuilder Methods { get; }

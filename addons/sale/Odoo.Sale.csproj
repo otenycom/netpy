@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Odoo.Addons.Sale</RootNamespace>
     <AssemblyName>Odoo.Sale</AssemblyName>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)\GeneratedFiles</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
 
   <ItemGroup>

@@ -23,6 +23,7 @@ namespace Odoo.Core
         public int UserId { get; }
         public IColumnarCache Columns { get; }
         public IPipelineBuilder Methods => _pipelineRegistry;
+        public IdGenerator IdGenerator { get; }
 
         public OdooEnvironment(int userId, IColumnarCache? cache = null, ModelRegistry? modelRegistry = null, PipelineRegistry? pipelineRegistry = null)
         {
@@ -30,6 +31,26 @@ namespace Odoo.Core
             Columns = cache ?? new ColumnarValueCache();
             _modelRegistry = modelRegistry;
             _pipelineRegistry = pipelineRegistry ?? new PipelineRegistry();
+            IdGenerator = new IdGenerator();
+        }
+
+        /// <summary>
+        /// Access a model by name (Pythonic syntax).
+        /// Example: env["res.partner"]
+        /// </summary>
+        public ModelProxy this[string modelName]
+        {
+            get
+            {
+                if (_modelRegistry == null)
+                    throw new InvalidOperationException("Model registry is not initialized");
+
+                var schema = _modelRegistry.GetModel(modelName);
+                if (schema == null)
+                    throw new KeyNotFoundException($"Model '{modelName}' not found");
+
+                return new ModelProxy(this, modelName, schema);
+            }
         }
 
         public RecordSet<T> GetModel<T>() where T : IOdooRecord
