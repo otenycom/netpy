@@ -1,4 +1,6 @@
 using Odoo.Core;
+using Odoo.Base.Models;
+using Odoo.Sale.Models;
 
 namespace Odoo.Models
 {
@@ -71,13 +73,10 @@ namespace Odoo.Models
     /// Inherits functionality from multiple mixins demonstrating multiple inheritance.
     /// </summary>
     [OdooModel("res.partner")]
-    public interface IPartner : IMailThread, IAddress, IContactInfo
+    public interface IPartner : IPartnerSaleExtension, IMailThread, IAddress, IContactInfo
     {
-        [OdooField("name")]
-        string Name { get; set; }
-
-        [OdooField("is_company")]
-        bool IsCompany { get; set; }
+        [OdooField("email")]
+        new string? Email { get; set; }
 
         [OdooField("parent_id")]
         int? ParentId { get; set; }

@@ -19,6 +19,12 @@ namespace Odoo.Core
         private readonly Dictionary<Type, Delegate> _recordFactories = new();
         private readonly ModelRegistry? _modelRegistry;
         private readonly PipelineRegistry _pipelineRegistry;
+        
+        /// <summary>
+        /// Identity Map: Caches record instances to ensure reference equality.
+        /// Key is (ModelToken, RecordId), Value is the unified wrapper instance.
+        /// </summary>
+        private readonly Dictionary<(int ModelToken, int Id), IOdooRecord> _identityMap = new();
 
         public int UserId { get; }
         public IColumnarCache Columns { get; }
@@ -40,6 +46,135 @@ namespace Odoo.Core
             _modelRegistry = modelRegistry;
             _pipelineRegistry = pipelineRegistry ?? new PipelineRegistry();
             IdGenerator = new IdGenerator();
+        }
+        
+        /// <summary>
+        /// Get a record from the identity map, creating it if necessary.
+        /// This ensures reference equality for the same (model, id) combination.
+        /// </summary>
+        /// <typeparam name="T">The interface type to retrieve the record as.</typeparam>
+        /// <param name="modelName">The Odoo model name (e.g., "res.partner").</param>
+        /// <param name="id">The record ID.</param>
+        /// <returns>The record instance cast to T.</returns>
+        /// <example>
+        /// var partner1 = env.GetRecord&lt;IPartnerBase&gt;("res.partner", 1);
+        /// var partner2 = env.GetRecord&lt;IPartnerSaleExtension&gt;("res.partner", 1);
+        /// Assert.True(ReferenceEquals(partner1, partner2)); // Same instance!
+        /// </example>
+        public T GetRecord<T>(string modelName, int id) where T : class, IOdooRecord
+        {
+            if (_modelRegistry == null)
+                throw new InvalidOperationException("Model registry is not initialized");
+            
+            var schema = _modelRegistry.GetModel(modelName);
+            if (schema == null)
+                throw new KeyNotFoundException($"Model '{modelName}' not found");
+            
+            var key = (schema.Token.Token, id);
+            
+            if (_identityMap.TryGetValue(key, out var existing))
+            {
+                // Cache hit - return existing instance
+                return (T)existing;
+            }
+            
+            // Cache miss - create new instance using registered factory
+            var factory = _modelRegistry.GetRecordFactory(modelName);
+            var record = factory(this, id);
+            
+            _identityMap[key] = record;
+            return (T)record;
+        }
+        
+        /// <summary>
+        /// Get a record by ID, inferring the model name from the interface's [OdooModel] attribute.
+        /// </summary>
+        public T GetRecord<T>(int id) where T : class, IOdooRecord
+        {
+            var modelName = GetModelName<T>();
+            return GetRecord<T>(modelName, id);
+        }
+        
+        /// <summary>
+        /// Register a record in the identity map.
+        /// Called when creating new records to ensure reference equality.
+        /// </summary>
+        public void RegisterInIdentityMap(int modelToken, int id, IOdooRecord record)
+        {
+            var key = (modelToken, id);
+            _identityMap[key] = record;
+        }
+        
+        /// <summary>
+        /// Check if a record exists in the identity map.
+        /// </summary>
+        public bool TryGetFromIdentityMap(int modelToken, int id, out IOdooRecord? record)
+        {
+            return _identityMap.TryGetValue((modelToken, id), out record);
+        }
+        
+        /// <summary>
+        /// Clear the identity map. Use with caution - invalidates all cached references.
+        /// </summary>
+        public void ClearIdentityMap()
+        {
+            _identityMap.Clear();
+        }
+        
+        /// <summary>
+        /// Get multiple records as a RecordSet with identity map support.
+        /// </summary>
+        /// <typeparam name="T">The interface type for the records.</typeparam>
+        /// <param name="modelName">The Odoo model name.</param>
+        /// <param name="ids">The record IDs.</param>
+        /// <returns>A RecordSet of records.</returns>
+        public RecordSet<T> GetRecords<T>(string modelName, int[] ids) where T : class, IOdooRecord
+        {
+            return new RecordSet<T>(
+                this,
+                modelName,
+                ids,
+                (env, id) => ((OdooEnvironment)env).GetRecord<T>(modelName, id));
+        }
+        
+        /// <summary>
+        /// Get multiple records as a RecordSet, inferring model name from interface.
+        /// </summary>
+        public RecordSet<T> GetRecords<T>(int[] ids) where T : class, IOdooRecord
+        {
+            var modelName = GetModelName<T>();
+            return GetRecords<T>(modelName, ids);
+        }
+        
+        /// <summary>
+        /// Get a record by model token and ID.
+        /// Used by RecordHandle.As&lt;T&gt;() for identity map lookups.
+        /// </summary>
+        public T GetRecordByToken<T>(int modelToken, int id) where T : class, IOdooRecord
+        {
+            if (_modelRegistry == null)
+                throw new InvalidOperationException("Model registry is not initialized");
+            
+            var key = (modelToken, id);
+            
+            if (_identityMap.TryGetValue(key, out var existing))
+            {
+                return (T)existing;
+            }
+            
+            // Find the model name from token
+            foreach (var schema in _modelRegistry.GetAllModels())
+            {
+                if (schema.Token.Token == modelToken)
+                {
+                    var factory = _modelRegistry.GetRecordFactory(schema.ModelName);
+                    var record = factory(this, id);
+                    _identityMap[key] = record;
+                    return (T)record;
+                }
+            }
+            
+            throw new KeyNotFoundException($"No model found with token {modelToken}");
         }
 
         /// <summary>

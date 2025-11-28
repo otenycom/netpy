@@ -9,6 +9,11 @@ using System.Text;
 
 namespace Odoo.SourceGenerator
 {
+    /// <summary>
+    /// Unified Wrapper Source Generator.
+    /// Generates class-based wrappers that implement ALL visible interfaces for each model.
+    /// Supports the "snowball" effect where downstream projects see cumulative interfaces.
+    /// </summary>
     [Generator]
     public class OdooModelGenerator : ISourceGenerator
     {
@@ -27,7 +32,17 @@ namespace Odoo.SourceGenerator
                 return;
 
             var compilation = context.Compilation;
-            var modelData = new List<ModelInfo>();
+            
+            // === UNIFIED WRAPPER ARCHITECTURE ===
+            // Step 1: Collect ALL [OdooModel] interfaces visible to this compilation
+            // This includes interfaces from:
+            //   - Current project (local interfaces)
+            //   - Referenced assemblies (upstream interfaces)
+            
+            var allOdooInterfaces = CollectAllOdooInterfaces(compilation, receiver);
+            
+            // Step 2: Group interfaces by model name (e.g., "res.partner")
+            var modelGroups = GroupInterfacesByModel(allOdooInterfaces);
 
             // Process Logic Methods
             var logicMethods = new List<LogicMethodInfo>();
@@ -56,10 +71,8 @@ namespace Odoo.SourceGenerator
             }
 
             // Generate Module Registrar if logic methods or models exist
-            if (logicMethods.Any() || receiver.InterfacesToProcess.Any())
+            if (logicMethods.Any() || modelGroups.Any())
             {
-                // We'll generate the registrar after collecting model data
-
                 // Generate Typed Super Delegates
                 var delegatesSource = GenerateSuperDelegates(logicMethods);
                 context.AddSource("SuperDelegates.g.cs", SourceText.From(delegatesSource, Encoding.UTF8));
@@ -69,43 +82,53 @@ namespace Odoo.SourceGenerator
                 context.AddSource("LogicExtensions.g.cs", SourceText.From(logicExtensionsSource, Encoding.UTF8));
             }
 
-            // First pass: collect all model and field information
-            foreach (var interfaceDecl in receiver.InterfacesToProcess)
+            // Step 3: Build unified model data from grouped interfaces
+            var modelData = new List<UnifiedModelInfo>();
+
+            foreach (var kvp in modelGroups)
             {
-                var model = compilation.GetSemanticModel(interfaceDecl.SyntaxTree);
-                var interfaceSymbol = model.GetDeclaredSymbol(interfaceDecl);
+                var modelName = kvp.Key;
+                var interfaces = kvp.Value;
                 
-                if (interfaceSymbol == null)
-                    continue;
-
-                var modelName = GetOdooModelName(interfaceSymbol);
-                if (string.IsNullOrEmpty(modelName))
-                    continue;
-
-                var info = new ModelInfo
-                {
-                    InterfaceSymbol = interfaceSymbol,
-                    ModelName = modelName,
-                    Properties = GetAllProperties(interfaceSymbol)
-                };
-
                 // Assign tokens using stable hashes for cross-assembly uniqueness
                 if (!_modelTokens.ContainsKey(modelName))
                 {
                     _modelTokens[modelName] = GetStableHashCode(modelName);
                 }
-                info.ModelToken = _modelTokens[modelName];
+                var modelToken = _modelTokens[modelName];
 
-                // Assign field tokens using stable hashes
-                foreach (var prop in info.Properties)
+                // Collect ALL properties from ALL interfaces for this model
+                var allProperties = new Dictionary<string, IPropertySymbol>();
+                foreach (var iface in interfaces)
                 {
-                    var fieldName = GetOdooFieldName(prop);
-                    var key = (modelName, fieldName);
-                    if (!_fieldTokens.ContainsKey(key))
+                    foreach (var prop in GetAllProperties(iface))
                     {
-                        _fieldTokens[key] = GetStableHashCode($"{modelName}.{fieldName}");
+                        var fieldName = GetOdooFieldName(prop);
+                        // Use the first definition encountered (avoid duplicates)
+                        if (!allProperties.ContainsKey(fieldName))
+                        {
+                            allProperties[fieldName] = prop;
+                        }
+                        
+                        // Assign field tokens
+                        var key = (modelName, fieldName);
+                        if (!_fieldTokens.ContainsKey(key))
+                        {
+                            _fieldTokens[key] = GetStableHashCode($"{modelName}.{fieldName}");
+                        }
                     }
                 }
+
+                var info = new UnifiedModelInfo
+                {
+                    ModelName = modelName,
+                    ModelToken = modelToken,
+                    Interfaces = interfaces,
+                    Properties = allProperties.Values.ToList(),
+                    // Use the "most specific" interface name for the class name
+                    // In practice, use the first local interface or the most derived one
+                    ClassName = GetUnifiedClassName(modelName, interfaces)
+                };
 
                 modelData.Add(info);
             }
@@ -122,17 +145,17 @@ namespace Odoo.SourceGenerator
             {
                 // Generate BatchContext
                 var batchContextSource = GenerateBatchContext(info, safeAssemblyName);
-                var batchContextName = $"{info.InterfaceSymbol.Name.Substring(1)}BatchContext.g.cs";
+                var batchContextName = $"{info.ClassName}BatchContext.g.cs";
                 context.AddSource(batchContextName, SourceText.From(batchContextSource, Encoding.UTF8));
 
-                // Generate Wrapper struct
+                // Generate Unified Wrapper CLASS (not struct)
                 var wrapperSource = GenerateWrapperStruct(info, safeAssemblyName);
-                var wrapperName = $"{info.InterfaceSymbol.Name.Substring(1)}Wrapper.g.cs";
+                var wrapperName = $"{info.ClassName}.g.cs";
                 context.AddSource(wrapperName, SourceText.From(wrapperSource, Encoding.UTF8));
 
                 // Generate Property Pipelines
                 var pipelineSource = GeneratePropertyPipelines(info, safeAssemblyName);
-                var pipelineName = $"{info.InterfaceSymbol.Name.Substring(1)}Pipelines.g.cs";
+                var pipelineName = $"{info.ClassName}Pipelines.g.cs";
                 context.AddSource(pipelineName, SourceText.From(pipelineSource, Encoding.UTF8));
             }
 
@@ -140,7 +163,7 @@ namespace Odoo.SourceGenerator
             foreach (var info in modelData)
             {
                 var valuesSource = GenerateValuesStruct(info, safeAssemblyName);
-                var valuesName = $"{info.InterfaceSymbol.Name.Substring(1)}Values.g.cs";
+                var valuesName = $"{info.ClassName}Values.g.cs";
                 context.AddSource(valuesName, SourceText.From(valuesSource, Encoding.UTF8));
             }
 
@@ -156,7 +179,7 @@ namespace Odoo.SourceGenerator
             }
         }
 
-        private string GenerateModelSchema(List<ModelInfo> models, string? assemblyName)
+        private string GenerateModelSchema(List<UnifiedModelInfo> models, string? assemblyName)
         {
             var sb = new StringBuilder();
             var safeAssemblyName = (assemblyName ?? "App").Replace(".", "");
@@ -177,12 +200,11 @@ namespace Odoo.SourceGenerator
 
             foreach (var model in models)
             {
-                var className = model.InterfaceSymbol.Name.Substring(1); // Remove 'I'
-                
                 sb.AppendLine($"        /// <summary>");
                 sb.AppendLine($"        /// Schema for {model.ModelName}");
+                sb.AppendLine($"        /// Unified wrapper implementing: {string.Join(", ", model.Interfaces.Select(i => i.Name))}");
                 sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        public static class {className}");
+                sb.AppendLine($"        public static class {model.ClassName}");
                 sb.AppendLine("        {");
                 sb.AppendLine($"            public static readonly ModelHandle ModelToken = new({model.ModelToken});");
                 sb.AppendLine($"            public const string ModelName = \"{model.ModelName}\";");
@@ -209,11 +231,12 @@ namespace Odoo.SourceGenerator
             return sb.ToString();
         }
 
-        private string GenerateBatchContext(ModelInfo model, string safeAssemblyName)
+        private string GenerateBatchContext(UnifiedModelInfo model, string safeAssemblyName)
         {
             var sb = new StringBuilder();
-            var namespaceName = model.InterfaceSymbol.ContainingNamespace.ToDisplayString();
-            var className = model.InterfaceSymbol.Name.Substring(1); // Remove 'I'
+            // Use the first interface's namespace for backward compatibility
+            var namespaceName = model.InterfaceSymbol?.ContainingNamespace?.ToDisplayString() ?? $"Odoo.Generated.{safeAssemblyName}";
+            var className = model.ClassName;
             var contextName = $"{className}BatchContext";
             var schemaNamespace = $"Odoo.Generated.{safeAssemblyName}";
 
@@ -293,13 +316,18 @@ namespace Odoo.SourceGenerator
             return sb.ToString();
         }
 
-        private string GenerateWrapperStruct(ModelInfo model, string safeAssemblyName)
+        /// <summary>
+        /// Generate a UNIFIED WRAPPER CLASS (not struct) implementing ALL visible interfaces.
+        /// This is the core of the unified wrapper architecture.
+        /// </summary>
+        private string GenerateWrapperStruct(UnifiedModelInfo model, string safeAssemblyName)
         {
             var sb = new StringBuilder();
-            var namespaceName = model.InterfaceSymbol.ContainingNamespace.ToDisplayString();
-            var wrapperName = model.InterfaceSymbol.Name.Substring(1) + "Wrapper";
-            var className = model.InterfaceSymbol.Name.Substring(1);
             var schemaNamespace = $"Odoo.Generated.{safeAssemblyName}";
+            var className = model.ClassName;
+            
+            // Build the interface list for implementation
+            var interfaceList = string.Join(", ", model.Interfaces.Select(i => i.ToDisplayString()));
 
             sb.AppendLine("// <auto-generated/>");
             sb.AppendLine("#nullable enable");
@@ -308,24 +336,46 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("using System.Runtime.CompilerServices;");
             sb.AppendLine("using Odoo.Core;");
             sb.AppendLine($"using {schemaNamespace};");
+            
+            // Add using statements for all interface namespaces
+            foreach (var iface in model.Interfaces)
+            {
+                var ns = iface.ContainingNamespace?.ToDisplayString();
+                if (!string.IsNullOrEmpty(ns))
+                {
+                    sb.AppendLine($"using {ns};");
+                }
+            }
+            
             sb.AppendLine();
-            sb.AppendLine($"namespace {namespaceName}.Generated");
+            sb.AppendLine($"namespace {schemaNamespace}");
             sb.AppendLine("{");
             sb.AppendLine($"    /// <summary>");
-            sb.AppendLine($"    /// Generated wrapper struct for {model.InterfaceSymbol.Name}");
-            sb.AppendLine($"    /// Model: {model.ModelName}");
-            sb.AppendLine($"    /// Zero-cost view over RecordHandle.");
+            sb.AppendLine($"    /// Unified wrapper CLASS for {model.ModelName}");
+            sb.AppendLine($"    /// Implements: {interfaceList}");
+            sb.AppendLine($"    /// Supports identity map and reference equality.");
             sb.AppendLine($"    /// </summary>");
-            sb.AppendLine($"    public readonly struct {wrapperName} : {model.InterfaceSymbol.ToDisplayString()}, IRecordWrapper");
+            sb.AppendLine($"    public sealed class {className} : {interfaceList}, IRecordWrapper");
             sb.AppendLine("    {");
             
-            // Handle Field
-            sb.AppendLine("        public RecordHandle Handle { get; init; }");
+            // Private field for handle - classes use private field + property
+            sb.AppendLine("        private readonly RecordHandle _handle;");
+            sb.AppendLine();
+            
+            // Constructor
+            sb.AppendLine($"        public {className}(RecordHandle handle)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            _handle = handle;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+
+            // Handle property (from IRecordWrapper)
+            sb.AppendLine("        public RecordHandle Handle => _handle;");
             sb.AppendLine();
 
             // IOdooRecord properties
-            sb.AppendLine("        public int Id => Handle.Id;");
-            sb.AppendLine("        public IEnvironment Env => Handle.Env;");
+            sb.AppendLine("        public int Id => _handle.Id;");
+            sb.AppendLine("        public IEnvironment Env => _handle.Env;");
             sb.AppendLine();
 
             // Generate properties that delegate to pipelines
@@ -336,14 +386,24 @@ namespace Odoo.SourceGenerator
                 
                 sb.AppendLine($"        public {propertyType} {prop.Name}");
                 sb.AppendLine("        {");
-                sb.AppendLine($"            get => {pipelineClass}.Get_{prop.Name}(Handle);");
+                sb.AppendLine($"            get => {pipelineClass}.Get_{prop.Name}(_handle);");
                 if (!prop.IsReadOnly)
                 {
-                    sb.AppendLine($"            set => {pipelineClass}.Set_{prop.Name}(Handle, value);");
+                    sb.AppendLine($"            set => {pipelineClass}.Set_{prop.Name}(_handle, value);");
                 }
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
+            
+            // Override Equals and GetHashCode for identity
+            sb.AppendLine("        public override bool Equals(object? obj)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            return obj is {className} other && _handle.Id == other._handle.Id && _handle.Model.Token == other._handle.Model.Token;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        public override int GetHashCode() => HashCode.Combine(_handle.Id, _handle.Model.Token);");
+            sb.AppendLine();
+            sb.AppendLine($"        public override string ToString() => $\"{model.ModelName}({{Id}})\";");
 
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -351,11 +411,10 @@ namespace Odoo.SourceGenerator
             return sb.ToString();
         }
 
-        private string GeneratePropertyPipelines(ModelInfo model, string safeAssemblyName)
+        private string GeneratePropertyPipelines(UnifiedModelInfo model, string safeAssemblyName)
         {
             var sb = new StringBuilder();
-            var namespaceName = model.InterfaceSymbol.ContainingNamespace.ToDisplayString();
-            var className = model.InterfaceSymbol.Name.Substring(1);
+            var className = model.ClassName;
             var pipelineClass = $"{className}Pipelines";
             var schemaNamespace = $"Odoo.Generated.{safeAssemblyName}";
 
@@ -366,7 +425,7 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("using Odoo.Core;");
             sb.AppendLine($"using {schemaNamespace};");
             sb.AppendLine();
-            sb.AppendLine($"namespace {namespaceName}.Generated");
+            sb.AppendLine($"namespace {schemaNamespace}");
             sb.AppendLine("{");
             sb.AppendLine($"    public static class {pipelineClass}");
             sb.AppendLine("    {");
@@ -429,11 +488,10 @@ namespace Odoo.SourceGenerator
             return sb.ToString();
         }
 
-        private string GenerateValuesStruct(ModelInfo model, string safeAssemblyName)
+        private string GenerateValuesStruct(UnifiedModelInfo model, string safeAssemblyName)
         {
             var sb = new StringBuilder();
-            var namespaceName = model.InterfaceSymbol.ContainingNamespace.ToDisplayString();
-            var className = model.InterfaceSymbol.Name.Substring(1);
+            var className = model.ClassName;
             var valuesName = $"{className}Values";
             var schemaNamespace = $"Odoo.Generated.{safeAssemblyName}";
 
@@ -443,7 +501,7 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("using System;");
             sb.AppendLine($"using {schemaNamespace};");
             sb.AppendLine();
-            sb.AppendLine($"namespace {namespaceName}.Generated");
+            sb.AppendLine($"namespace {schemaNamespace}");
             sb.AppendLine("{");
             sb.AppendLine($"    /// <summary>");
             sb.AppendLine($"    /// Values for creating a {model.ModelName} record.");
@@ -470,7 +528,7 @@ namespace Odoo.SourceGenerator
         }
 
 
-        private string GenerateEnvironmentExtensions(List<ModelInfo> models, string safeAssemblyName)
+        private string GenerateEnvironmentExtensions(List<UnifiedModelInfo> models, string safeAssemblyName)
         {
             var sb = new StringBuilder();
             var schemaNamespace = $"Odoo.Generated.{safeAssemblyName}";
@@ -481,16 +539,21 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("using System;");
             sb.AppendLine("using Odoo.Core;");
             
-            // Add using statements for all model namespaces (both original and generated)
-            var modelNamespaces = models.Select(m => m.InterfaceSymbol.ContainingNamespace.ToDisplayString()).Distinct();
-            foreach (var ns in modelNamespaces)
+            // Add using statements for all interface namespaces
+            var allNamespaces = new HashSet<string>();
+            foreach (var model in models)
             {
-                sb.AppendLine($"using {ns};");
+                foreach (var iface in model.Interfaces)
+                {
+                    var ns = iface.ContainingNamespace?.ToDisplayString();
+                    if (!string.IsNullOrEmpty(ns))
+                    {
+                        allNamespaces.Add(ns);
+                    }
+                }
             }
             
-            // Add using statements for generated namespaces
-            var generatedNamespaces = models.Select(m => m.InterfaceSymbol.ContainingNamespace.ToDisplayString() + ".Generated").Distinct();
-            foreach (var ns in generatedNamespaces)
+            foreach (var ns in allNamespaces)
             {
                 sb.AppendLine($"using {ns};");
             }
@@ -499,59 +562,37 @@ namespace Odoo.SourceGenerator
             sb.AppendLine($"namespace {schemaNamespace}");
             sb.AppendLine("{");
             sb.AppendLine("    /// <summary>");
-            sb.AppendLine("    /// Generated extension methods for IEnvironment");
+            sb.AppendLine("    /// Generated extension methods for IEnvironment.");
+            sb.AppendLine("    /// Use env.GetRecord&lt;T&gt;(id) and env.GetRecords&lt;T&gt;(ids) for record access.");
             sb.AppendLine("    /// </summary>");
             sb.AppendLine("    public static class OdooEnvironmentExtensions");
             sb.AppendLine("    {");
 
             foreach (var model in models)
             {
-                var wrapperName = model.InterfaceSymbol.Name.Substring(1) + "Wrapper";
-                var methodName = model.InterfaceSymbol.Name.Substring(1) + "s";
-                var singleMethodName = model.InterfaceSymbol.Name.Substring(1);
+                var className = model.ClassName;
+                var valuesName = $"{className}Values";
+                var primaryInterface = model.Interfaces.FirstOrDefault();
 
-                sb.AppendLine($"        /// <summary>");
-                sb.AppendLine($"        /// Get a recordset for {model.InterfaceSymbol.Name}");
-                sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        public static RecordSet<{model.InterfaceSymbol.ToDisplayString()}> {methodName}(");
-                sb.AppendLine($"            this IEnvironment env,");
-                sb.AppendLine($"            int[] ids)");
-                sb.AppendLine("        {");
-                sb.AppendLine($"            return new RecordSet<{model.InterfaceSymbol.ToDisplayString()}>(");
-                sb.AppendLine($"                env,");
-                sb.AppendLine($"                \"{model.ModelName}\",");
-                sb.AppendLine($"                ids,");
-                sb.AppendLine($"                (e, id) => new {wrapperName} {{ Handle = new RecordHandle(e, id, ModelSchema.{singleMethodName}.ModelToken) }});");
-                sb.AppendLine("        }");
-                sb.AppendLine();
-
-                sb.AppendLine($"        /// <summary>");
-                sb.AppendLine($"        /// Get a single record for {model.InterfaceSymbol.Name}");
-                sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        public static {model.InterfaceSymbol.ToDisplayString()} {singleMethodName}(");
-                sb.AppendLine($"            this IEnvironment env,");
-                sb.AppendLine($"            int id)");
-                sb.AppendLine("        {");
-                sb.AppendLine($"            return new {wrapperName} {{ Handle = new RecordHandle(env, id, ModelSchema.{singleMethodName}.ModelToken) }};");
-                sb.AppendLine("        }");
-                sb.AppendLine();
-
-                // Generate Create method
-                var valuesName = $"{model.InterfaceSymbol.Name.Substring(1)}Values";
-                
+                // Only generate Create method - record access is via env.GetRecord<T>()
                 sb.AppendLine($"        /// <summary>");
                 sb.AppendLine($"        /// Create a new {model.ModelName} record.");
+                sb.AppendLine($"        /// Registers in identity map for reference equality.");
                 sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        /// <example>");
-                sb.AppendLine($"        /// var record = env.Create(new {valuesName} {{ Name = \"...\" }});");
-                sb.AppendLine($"        /// </example>");
-                sb.AppendLine($"        public static {model.InterfaceSymbol.ToDisplayString()} Create(");
+                sb.AppendLine($"        public static {primaryInterface?.ToDisplayString() ?? "IOdooRecord"} Create(");
                 sb.AppendLine($"            this IEnvironment env,");
                 sb.AppendLine($"            {valuesName} values)");
                 sb.AppendLine("        {");
                 sb.AppendLine($"            var newId = env.IdGenerator.NextId(\"{model.ModelName}\");");
-                sb.AppendLine($"            var modelToken = ModelSchema.{singleMethodName}.ModelToken;");
+                sb.AppendLine($"            var modelToken = ModelSchema.{className}.ModelToken;");
                 sb.AppendLine($"            var handle = new RecordHandle(env, newId, modelToken);");
+                sb.AppendLine($"            var record = new {className}(handle);");
+                sb.AppendLine();
+                sb.AppendLine($"            // Register in identity map");
+                sb.AppendLine($"            if (env is OdooEnvironment odooEnv)");
+                sb.AppendLine($"            {{");
+                sb.AppendLine($"                odooEnv.RegisterInIdentityMap(modelToken.Token, newId, record);");
+                sb.AppendLine($"            }}");
                 sb.AppendLine();
 
                 foreach (var prop in model.Properties)
@@ -560,26 +601,25 @@ namespace Odoo.SourceGenerator
 
                     var propertyType = prop.Type.ToDisplayString();
                     var isNullable = propertyType.EndsWith("?");
-                    var pipelineClass = $"{model.InterfaceSymbol.Name.Substring(1)}Pipelines";
-                    var ns = model.InterfaceSymbol.ContainingNamespace.ToDisplayString() + ".Generated";
+                    var pipelineClass = $"{className}Pipelines";
                     
                     sb.AppendLine($"            if (values.{prop.Name} is not null)");
                     sb.AppendLine("            {");
                     
                     if (isNullable || !prop.Type.IsValueType)
                     {
-                        sb.AppendLine($"                {ns}.{pipelineClass}.Set_{prop.Name}(handle, values.{prop.Name});");
+                        sb.AppendLine($"                {pipelineClass}.Set_{prop.Name}(handle, values.{prop.Name});");
                     }
                     else
                     {
-                        sb.AppendLine($"                {ns}.{pipelineClass}.Set_{prop.Name}(handle, values.{prop.Name}.Value);");
+                        sb.AppendLine($"                {pipelineClass}.Set_{prop.Name}(handle, values.{prop.Name}.Value);");
                     }
                     
                     sb.AppendLine("            }");
                 }
 
                 sb.AppendLine();
-                sb.AppendLine($"            return new {wrapperName} {{ Handle = handle }};");
+                sb.AppendLine($"            return record;");
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
@@ -678,8 +718,135 @@ namespace Odoo.SourceGenerator
             public int ModelToken { get; set; }
             public List<IPropertySymbol> Properties { get; set; } = new();
         }
+        
+        /// <summary>
+        /// Unified model info for the snowball architecture.
+        /// Contains ALL interfaces for a single model across all visible assemblies.
+        /// </summary>
+        private class UnifiedModelInfo
+        {
+            public string ModelName { get; set; } = "";
+            public int ModelToken { get; set; }
+            public string ClassName { get; set; } = "";
+            public List<INamedTypeSymbol> Interfaces { get; set; } = new();
+            public List<IPropertySymbol> Properties { get; set; } = new();
+            
+            // For backward compatibility with existing generate methods
+            public INamedTypeSymbol InterfaceSymbol => Interfaces.FirstOrDefault()!;
+        }
+        
+        /// <summary>
+        /// Collect ALL interfaces with [OdooModel] attribute visible to this compilation.
+        /// This includes local interfaces AND interfaces from referenced assemblies.
+        /// </summary>
+        private List<INamedTypeSymbol> CollectAllOdooInterfaces(Compilation compilation, OdooModelSyntaxReceiver receiver)
+        {
+            var result = new List<INamedTypeSymbol>();
+            var processed = new HashSet<string>(StringComparer.Ordinal);
+            
+            // 1. Collect from current compilation (local interfaces)
+            foreach (var interfaceDecl in receiver.InterfacesToProcess)
+            {
+                var model = compilation.GetSemanticModel(interfaceDecl.SyntaxTree);
+                var interfaceSymbol = model.GetDeclaredSymbol(interfaceDecl);
+                
+                if (interfaceSymbol == null) continue;
+                
+                var modelName = GetOdooModelName(interfaceSymbol);
+                if (string.IsNullOrEmpty(modelName)) continue;
+                
+                var key = interfaceSymbol.ToDisplayString();
+                if (processed.Add(key))
+                {
+                    result.Add(interfaceSymbol);
+                }
+            }
+            
+            // 2. Collect from referenced assemblies
+            foreach (var reference in compilation.References)
+            {
+                var assemblySymbol = compilation.GetAssemblyOrModuleSymbol(reference) as IAssemblySymbol;
+                if (assemblySymbol == null) continue;
+                
+                CollectOdooInterfacesFromNamespace(assemblySymbol.GlobalNamespace, result, processed);
+            }
+            
+            return result;
+        }
+        
+        /// <summary>
+        /// Recursively scan a namespace for [OdooModel] interfaces.
+        /// </summary>
+        private void CollectOdooInterfacesFromNamespace(
+            INamespaceSymbol ns,
+            List<INamedTypeSymbol> result,
+            HashSet<string> processed)
+        {
+            foreach (var type in ns.GetTypeMembers())
+            {
+                if (type.TypeKind == TypeKind.Interface)
+                {
+                    var modelName = GetOdooModelName(type);
+                    if (!string.IsNullOrEmpty(modelName))
+                    {
+                        var key = type.ToDisplayString();
+                        if (processed.Add(key))
+                        {
+                            result.Add(type);
+                        }
+                    }
+                }
+            }
+            
+            foreach (var childNs in ns.GetNamespaceMembers())
+            {
+                CollectOdooInterfacesFromNamespace(childNs, result, processed);
+            }
+        }
+        
+        /// <summary>
+        /// Group interfaces by their Odoo model name.
+        /// e.g., All interfaces with [OdooModel("res.partner")] are grouped together.
+        /// </summary>
+        private Dictionary<string, List<INamedTypeSymbol>> GroupInterfacesByModel(List<INamedTypeSymbol> interfaces)
+        {
+            var groups = new Dictionary<string, List<INamedTypeSymbol>>();
+            
+            foreach (var iface in interfaces)
+            {
+                var modelName = GetOdooModelName(iface);
+                if (string.IsNullOrEmpty(modelName)) continue;
+                
+                if (!groups.TryGetValue(modelName, out var list))
+                {
+                    list = new List<INamedTypeSymbol>();
+                    groups[modelName] = list;
+                }
+                
+                list.Add(iface);
+            }
+            
+            return groups;
+        }
+        
+        /// <summary>
+        /// Generate a unified class name from the model name.
+        /// e.g., "res.partner" -> "Partner"
+        /// </summary>
+        private string GetUnifiedClassName(string modelName, List<INamedTypeSymbol> interfaces)
+        {
+            // Strategy: Use the model name to derive a class name
+            // e.g., "res.partner" -> "Partner"
+            // e.g., "sale.order" -> "SaleOrder"
+            
+            var parts = modelName.Split('.');
+            var className = string.Join("", parts.Select(p =>
+                char.ToUpper(p[0]) + p.Substring(1)));
+            
+            return className;
+        }
 
-        private string GenerateModuleRegistrar(List<LogicMethodInfo> methods, List<ModelInfo> models, string? assemblyName)
+        private string GenerateModuleRegistrar(List<LogicMethodInfo> methods, List<UnifiedModelInfo> models, string? assemblyName)
         {
             var sb = new StringBuilder();
             var safeAssemblyName = (assemblyName ?? "App").Replace(".", "");
@@ -690,17 +857,32 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
             
-            // Add using statements for model namespaces
-            var namespaces = models.Select(m => m.InterfaceSymbol.ContainingNamespace.ToDisplayString()).Distinct();
-            foreach (var ns in namespaces)
+            // Add using statements for all interface namespaces
+            var allNamespaces = new HashSet<string>();
+            foreach (var model in models)
+            {
+                foreach (var iface in model.Interfaces)
+                {
+                    var ns = iface.ContainingNamespace?.ToDisplayString();
+                    if (!string.IsNullOrEmpty(ns))
+                    {
+                        allNamespaces.Add(ns);
+                    }
+                }
+            }
+            
+            foreach (var ns in allNamespaces)
             {
                 sb.AppendLine($"using {ns};");
-                sb.AppendLine($"using {ns}.Generated;");
             }
             
             sb.AppendLine();
             sb.AppendLine($"namespace Odoo.Generated.{safeAssemblyName}");
             sb.AppendLine("{");
+            sb.AppendLine("    /// <summary>");
+            sb.AppendLine("    /// Module registrar for unified wrappers.");
+            sb.AppendLine("    /// Registers factories that create class-based wrappers with identity map support.");
+            sb.AppendLine("    /// </summary>");
             sb.AppendLine("    public class ModuleRegistrar : IModuleRegistrar");
             sb.AppendLine("    {");
             
@@ -711,9 +893,8 @@ namespace Odoo.SourceGenerator
             // Register Property Pipelines (Base)
             foreach (var model in models)
             {
-                var className = model.InterfaceSymbol.Name.Substring(1);
+                var className = model.ClassName;
                 var pipelineClass = $"{className}Pipelines";
-                var ns = model.InterfaceSymbol.ContainingNamespace.ToDisplayString() + ".Generated";
 
                 foreach (var prop in model.Properties)
                 {
@@ -722,13 +903,13 @@ namespace Odoo.SourceGenerator
 
                     // Register Getter Base
                     sb.AppendLine($"            builder.RegisterBase(\"{model.ModelName}\", \"get_{fieldName}\", ");
-                    sb.AppendLine($"                (Func<RecordHandle, {propertyType}>){ns}.{pipelineClass}.Get_{prop.Name}_Base);");
+                    sb.AppendLine($"                (Func<RecordHandle, {propertyType}>){pipelineClass}.Get_{prop.Name}_Base);");
 
                     if (!prop.IsReadOnly)
                     {
                         // Register Setter Base
                         sb.AppendLine($"            builder.RegisterBase(\"{model.ModelName}\", \"set_{fieldName}\", ");
-                        sb.AppendLine($"                (Action<RecordHandle, {propertyType}>){ns}.{pipelineClass}.Set_{prop.Name}_Base);");
+                        sb.AppendLine($"                (Action<RecordHandle, {propertyType}>){pipelineClass}.Set_{prop.Name}_Base);");
                     }
                 }
             }
@@ -756,17 +937,21 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("        }");
             sb.AppendLine();
             
-            // RegisterFactories method
+            // RegisterFactories method - creates class instances with constructor
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Register factories for unified wrapper classes.");
+            sb.AppendLine("        /// These factories create class instances that support identity map.");
+            sb.AppendLine("        /// </summary>");
             sb.AppendLine("        public void RegisterFactories(ModelRegistry modelRegistry)");
             sb.AppendLine("        {");
 
             foreach (var model in models)
             {
-                var wrapperName = model.InterfaceSymbol.Name.Substring(1) + "Wrapper";
-                var interfaceName = model.InterfaceSymbol.ToDisplayString();
+                var className = model.ClassName;
                 
+                sb.AppendLine($"            // Factory for {model.ModelName} - unified wrapper implementing {model.Interfaces.Count} interface(s)");
                 sb.AppendLine($"            modelRegistry.RegisterFactory(\"{model.ModelName}\", ");
-                sb.AppendLine($"                (env, id) => new {wrapperName} {{ Handle = new RecordHandle(env, id, ModelSchema.{model.InterfaceSymbol.Name.Substring(1)}.ModelToken) }});");
+                sb.AppendLine($"                (env, id) => new {className}(new RecordHandle(env, id, ModelSchema.{className}.ModelToken)));");
             }
 
             sb.AppendLine("        }");

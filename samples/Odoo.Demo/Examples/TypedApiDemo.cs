@@ -1,34 +1,29 @@
 using System;
+using System.Linq;
+using System.Reflection;
 using Odoo.Core;
+using Odoo.Core.Pipeline;
+using Odoo.Core.Modules;
 // Models defined in the Demo project - source generator creates typed code for these
 using Odoo.Models;
-using Odoo.Models.Generated;
-// Import extension methods for Demo models (Partner, Product, etc.)
+// Import unified wrappers and schema from Demo (uses model name -> ResPartner, Product)
 using Odoo.Generated.OdooDemo;
-// Alias for Demo ModelSchema to avoid ambiguity
-using DemoSchema = Odoo.Generated.OdooDemo.ModelSchema;
+using ModelSchema = Odoo.Generated.OdooDemo.ModelSchema;
 // Import typed access from the addons (base and sale)
 using Odoo.Base.Models;
-using Odoo.Base.Models.Generated;
-// Import extension methods for addon types (PartnerBase, PartnerSaleExtension)
-using Odoo.Generated.OdooBase;
-using BaseSchema = Odoo.Generated.OdooBase.ModelSchema;
 using Odoo.Sale.Models;
-using Odoo.Sale.Models.Generated;
-using Odoo.Generated.OdooSale;
-using SaleSchema = Odoo.Generated.OdooSale.ModelSchema;
 
 namespace Odoo.Examples
 {
     /// <summary>
     /// Demonstrates all the typed goodies available when using the Odoo Source Generator.
     /// 
-    /// When you reference the source generator, it automatically creates:
-    /// - ModelSchema: Static class with compile-time tokens for models and fields
-    /// - {Model}Record: Strongly-typed struct implementing the model interface
-    /// - {Model}Values: Struct for typed record creation
+    /// New Unified Wrapper Architecture:
+    /// - ModelSchema.{ClassName}: Static class with compile-time tokens (e.g., ModelSchema.ResPartner)
+    /// - env.GetRecord&lt;T&gt;(id): Get a single record from identity map
+    /// - env.GetRecords&lt;T&gt;(ids): Get multiple records as RecordSet
+    /// - env.Create({Model}Values): Create a new record
     /// - {Model}BatchContext: Ref struct for efficient batch iteration
-    /// - OdooEnvironmentExtensions: Extension methods for typed access
     /// </summary>
     public class TypedApiDemo
     {
@@ -38,8 +33,40 @@ namespace Odoo.Examples
             Console.WriteLine("This demo showcases all the compile-time type safety you get");
             Console.WriteLine("when using the Odoo Source Generator in your project.\n");
 
-            // Create environment
-            var env = new OdooEnvironment(userId: 1);
+            // Create environment with registry
+            var registryBuilder = new RegistryBuilder();
+            var pipelineRegistry = new PipelineRegistry();
+            
+            var assemblies = new[]
+            {
+                typeof(IPartnerBase).Assembly,
+                typeof(IPartnerSaleExtension).Assembly,
+                typeof(TypedApiDemo).Assembly
+            };
+
+            foreach (var assembly in assemblies)
+            {
+                registryBuilder.ScanAssembly(assembly);
+            }
+            
+            var modelRegistry = registryBuilder.Build();
+
+            foreach (var assembly in assemblies)
+            {
+                 var registrars = assembly.GetTypes()
+                    .Where(t => typeof(IModuleRegistrar).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
+                
+                foreach (var registrarType in registrars)
+                {
+                    var registrar = (IModuleRegistrar)Activator.CreateInstance(registrarType)!;
+                    registrar.RegisterPipelines(pipelineRegistry);
+                    registrar.RegisterFactories(modelRegistry);
+                }
+            }
+            
+            pipelineRegistry.CompileAll();
+
+            var env = new OdooEnvironment(userId: 1, modelRegistry: modelRegistry, pipelineRegistry: pipelineRegistry);
 
             // ═══════════════════════════════════════════════════════════════════
             // 1. TYPED SCHEMA ACCESS - Compile-time tokens eliminate string hashing
@@ -50,48 +77,48 @@ namespace Odoo.Examples
             Console.WriteLine();
             
             Console.WriteLine("Generated ModelSchema provides compile-time tokens:");
-            Console.WriteLine($"  DemoSchema.Partner.ModelToken = {DemoSchema.Partner.ModelToken}");
-            Console.WriteLine($"  DemoSchema.Partner.Name       = {DemoSchema.Partner.Name}");
-            Console.WriteLine($"  DemoSchema.Partner.Email      = {DemoSchema.Partner.Email}");
-            Console.WriteLine($"  DemoSchema.Partner.IsCompany  = {DemoSchema.Partner.IsCompany}");
+            Console.WriteLine($"  ModelSchema.ResPartner.ModelToken = {ModelSchema.ResPartner.ModelToken}");
+            Console.WriteLine($"  ModelSchema.ResPartner.Name       = {ModelSchema.ResPartner.Name}");
+            Console.WriteLine($"  ModelSchema.ResPartner.Email      = {ModelSchema.ResPartner.Email}");
+            Console.WriteLine($"  ModelSchema.ResPartner.IsCompany  = {ModelSchema.ResPartner.IsCompany}");
             Console.WriteLine();
-            Console.WriteLine($"  DemoSchema.Product.ModelToken = {DemoSchema.Product.ModelToken}");
-            Console.WriteLine($"  DemoSchema.Product.Name       = {DemoSchema.Product.Name}");
-            Console.WriteLine($"  DemoSchema.Product.ListPrice  = {DemoSchema.Product.ListPrice}");
+            Console.WriteLine($"  ModelSchema.ProductProduct.ModelToken = {ModelSchema.ProductProduct.ModelToken}");
+            Console.WriteLine($"  ModelSchema.ProductProduct.Name       = {ModelSchema.ProductProduct.Name}");
+            Console.WriteLine($"  ModelSchema.ProductProduct.ListPrice  = {ModelSchema.ProductProduct.ListPrice}");
             Console.WriteLine();
 
             // Seed some data using typed tokens
             SeedTypedData(env.Columns);
 
             // ═══════════════════════════════════════════════════════════════════
-            // 2. TYPED RECORD ACCESS - Extension methods on IEnvironment
+            // 2. TYPED RECORD ACCESS - env.GetRecord<T>(id)
             // ═══════════════════════════════════════════════════════════════════
             Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║  2. TYPED RECORD ACCESS (env.Partner(id))                   ║");
+            Console.WriteLine("║  2. TYPED RECORD ACCESS (env.GetRecord<T>(id))              ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
 
-            // Single record access - fully typed!
-            var partner = env.Partner(100);
+            // Single record access - fully typed using new API!
+            var partner = env.GetRecord<IPartner>("res.partner", 100);
             Console.WriteLine("Single record access with full IntelliSense:");
-            Console.WriteLine($"  var partner = env.Partner(100);");
+            Console.WriteLine($"  var partner = env.GetRecord<IPartner>(\"res.partner\", 100);");
             Console.WriteLine($"  partner.Name       => \"{partner.Name}\"");
             Console.WriteLine($"  partner.Email      => \"{partner.Email}\"");
             Console.WriteLine($"  partner.IsCompany  => {partner.IsCompany}");
             Console.WriteLine();
 
             // ═══════════════════════════════════════════════════════════════════
-            // 3. TYPED RECORDSETS - Collection operations with type safety
+            // 3. TYPED RECORDSETS - env.GetRecords<T>(ids)
             // ═══════════════════════════════════════════════════════════════════
             Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║  3. TYPED RECORDSETS (env.Partners(ids))                    ║");
+            Console.WriteLine("║  3. TYPED RECORDSETS (env.GetRecords<T>(ids))               ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
 
-            // RecordSet access - typed collection
-            var partners = env.Partners(new[] { 100, 101, 102 });
+            // RecordSet access using new API
+            var partners = env.GetRecords<IPartner>("res.partner", new[] { 100, 101, 102 });
             Console.WriteLine("RecordSet with typed iteration:");
-            Console.WriteLine($"  var partners = env.Partners(new[] {{ 100, 101, 102 }});");
+            Console.WriteLine($"  var partners = env.GetRecords<IPartner>(\"res.partner\", new[] {{ 100, 101, 102 }});");
             Console.WriteLine($"  partners.Count => {partners.Count}");
             Console.WriteLine();
             
@@ -113,15 +140,15 @@ namespace Odoo.Examples
             Console.WriteLine();
 
             // ═══════════════════════════════════════════════════════════════════
-            // 4. TYPED RECORD CREATION - PartnerValues struct
+            // 4. TYPED RECORD CREATION - env.Create(ResPartnerValues)
             // ═══════════════════════════════════════════════════════════════════
             Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║  4. TYPED RECORD CREATION (env.Create(PartnerValues))       ║");
+            Console.WriteLine("║  4. TYPED RECORD CREATION (env.Create(ResPartnerValues))    ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
 
             Console.WriteLine("Create records with compile-time validated values:");
-            Console.WriteLine("  var newPartner = env.Create(new PartnerValues");
+            Console.WriteLine("  var newPartner = env.Create(new ResPartnerValues");
             Console.WriteLine("  {");
             Console.WriteLine("      Name = \"ACME Corporation\",");
             Console.WriteLine("      Email = \"contact@acme.com\",");
@@ -130,7 +157,7 @@ namespace Odoo.Examples
             Console.WriteLine("  });");
             Console.WriteLine();
 
-            var newPartner = env.Create(new PartnerValues
+            var newPartner = env.Create(new ResPartnerValues
             {
                 Name = "ACME Corporation",
                 Email = "contact@acme.com",
@@ -145,34 +172,22 @@ namespace Odoo.Examples
             Console.WriteLine();
 
             // ═══════════════════════════════════════════════════════════════════
-            // 5. TYPED PROPERTY MODIFICATION - Automatic dirty tracking
+            // 5. IDENTITY MAP - Same ID returns same instance
             // ═══════════════════════════════════════════════════════════════════
             Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║  5. TYPED PROPERTY MODIFICATION (with dirty tracking)       ║");
+            Console.WriteLine("║  5. IDENTITY MAP - Reference Equality Guaranteed            ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
 
-            Console.WriteLine("Modify properties with full IntelliSense:");
-            Console.WriteLine("  partner.Email = \"new.email@company.com\";");
-            Console.WriteLine("  partner.Street = \"123 Main St\";");
+            Console.WriteLine("The unified wrapper architecture ensures identity:");
+            Console.WriteLine("  var p1 = env.GetRecord<IPartner>(\"res.partner\", 100);");
+            Console.WriteLine("  var p2 = env.GetRecord<IPartner>(\"res.partner\", 100);");
+            Console.WriteLine("  ReferenceEquals(p1, p2) => true // Same instance!");
             Console.WriteLine();
             
-            var modifyPartner = env.Partner(100);
-            modifyPartner.Email = "new.email@company.com";
-            modifyPartner.Street = "123 Main St";
-
-            Console.WriteLine($"Updated partner:");
-            Console.WriteLine($"  Email:  {modifyPartner.Email}");
-            Console.WriteLine($"  Street: {modifyPartner.Street}");
-            Console.WriteLine();
-
-            // Show dirty tracking
-            var dirtyFields = env.Columns.GetDirtyFields(DemoSchema.Partner.ModelToken, 100);
-            Console.WriteLine("Dirty tracking (modified fields):");
-            foreach (var field in dirtyFields)
-            {
-                Console.WriteLine($"  - Field token: {field.Token}");
-            }
+            var p1 = env.GetRecord<IPartner>("res.partner", 100);
+            var p2 = env.GetRecord<IPartner>("res.partner", 100);
+            Console.WriteLine($"  Actual result: ReferenceEquals(p1, p2) => {ReferenceEquals(p1, p2)}");
             Console.WriteLine();
 
             // ═══════════════════════════════════════════════════════════════════
@@ -185,15 +200,15 @@ namespace Odoo.Examples
 
             Console.WriteLine("Direct columnar cache access with typed tokens:");
             Console.WriteLine("  var email = env.Columns.GetValue<string>(");
-            Console.WriteLine("      DemoSchema.Partner.ModelToken,");
+            Console.WriteLine("      ModelSchema.ResPartner.ModelToken,");
             Console.WriteLine("      100,");
-            Console.WriteLine("      DemoSchema.Partner.Email);");
+            Console.WriteLine("      ModelSchema.ResPartner.Email);");
             Console.WriteLine();
 
             var email = env.Columns.GetValue<string>(
-                DemoSchema.Partner.ModelToken,
+                ModelSchema.ResPartner.ModelToken,
                 100,
-                DemoSchema.Partner.Email);
+                ModelSchema.ResPartner.Email);
             Console.WriteLine($"  Result: \"{email}\"");
             Console.WriteLine();
 
@@ -201,16 +216,16 @@ namespace Odoo.Examples
             Console.WriteLine("Batch columnar access for high-performance scenarios:");
             Console.WriteLine("  var ids = new[] { 100, 101, 102 };");
             Console.WriteLine("  var names = env.Columns.GetColumnSpan<string>(");
-            Console.WriteLine("      DemoSchema.Partner.ModelToken,");
+            Console.WriteLine("      ModelSchema.ResPartner.ModelToken,");
             Console.WriteLine("      ids,");
-            Console.WriteLine("      DemoSchema.Partner.Name);");
+            Console.WriteLine("      ModelSchema.ResPartner.Name);");
             Console.WriteLine();
 
             var ids = new[] { 100, 101, 102 };
             var names = env.Columns.GetColumnSpan<string>(
-                DemoSchema.Partner.ModelToken,
+                ModelSchema.ResPartner.ModelToken,
                 ids,
-                DemoSchema.Partner.Name);
+                ModelSchema.ResPartner.Name);
 
             Console.WriteLine($"  Batch results ({names.Length} values):");
             for (int i = 0; i < names.Length; i++)
@@ -234,15 +249,15 @@ namespace Odoo.Examples
             Console.WriteLine();
             
             Console.WriteLine("  // Product operations");
-            var product = env.Product(200);
-            Console.WriteLine($"  var product = env.Product(200);");
+            var product = env.GetRecord<IProduct>("product.product", 200);
+            Console.WriteLine($"  var product = env.GetRecord<IProduct>(\"product.product\", 200);");
             Console.WriteLine($"  product.Name => \"{product.Name}\"");
             Console.WriteLine($"  product.ListPrice => {product.ListPrice}");
             Console.WriteLine($"  product.ProductType => \"{product.ProductType}\"");
             Console.WriteLine();
 
             Console.WriteLine("  // Create typed product");
-            var newProduct = env.Create(new ProductValues
+            var newProduct = env.Create(new ProductProductValues
             {
                 Name = "Widget Pro",
                 ListPrice = 99.99m,
@@ -255,15 +270,15 @@ namespace Odoo.Examples
             Console.WriteLine();
 
             // ═══════════════════════════════════════════════════════════════════
-            // 8. ADDON-EXTENDED TYPES - Compound types from multiple addons
+            // 8. ADDON-EXTENDED TYPES - Polymorphism via unified wrappers
             // ═══════════════════════════════════════════════════════════════════
             Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
             Console.WriteLine("║  8. ADDON-EXTENDED TYPES (res.partner with sale fields)     ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
             
-            Console.WriteLine("When you reference addon modules at compile-time, you get typed");
-            Console.WriteLine("access to their extended fields as well!");
+            Console.WriteLine("When you reference addon modules at compile-time, the unified");
+            Console.WriteLine("wrapper implements ALL visible interfaces for that model!");
             Console.WriteLine();
             
             Console.WriteLine("  // Odoo.Base defines IPartnerBase:");
@@ -277,19 +292,19 @@ namespace Odoo.Examples
 
             Console.WriteLine("  === Using IPartnerBase (from Odoo.Base) ===");
             Console.WriteLine();
-            Console.WriteLine("  var basePartner = env.PartnerBase(500);");
-            var basePartner = env.PartnerBase(500);
+            Console.WriteLine("  var basePartner = env.GetRecord<IPartnerBase>(\"res.partner\", 500);");
+            var basePartner = env.GetRecord<IPartnerBase>("res.partner", 500);
             Console.WriteLine($"  basePartner.Name      => \"{basePartner.Name}\"");
             Console.WriteLine($"  basePartner.Email     => \"{basePartner.Email}\"");
             Console.WriteLine($"  basePartner.IsCompany => {basePartner.IsCompany}");
             Console.WriteLine();
 
             Console.WriteLine("  === Using IPartnerSaleExtension (from Odoo.Sale) ===");
-            Console.WriteLine("  This type inherits IPartnerBase, so it has ALL the fields!");
+            Console.WriteLine("  Same record, different interface - SAME INSTANCE!");
             Console.WriteLine();
-            Console.WriteLine("  var salePartner = env.PartnerSaleExtension(500);");
-            var salePartner = env.PartnerSaleExtension(500);
-            Console.WriteLine($"  // Base fields:");
+            Console.WriteLine("  var salePartner = env.GetRecord<IPartnerSaleExtension>(\"res.partner\", 500);");
+            var salePartner = env.GetRecord<IPartnerSaleExtension>("res.partner", 500);
+            Console.WriteLine($"  // Base fields (inherited):");
             Console.WriteLine($"  salePartner.Name        => \"{salePartner.Name}\"");
             Console.WriteLine($"  salePartner.Email       => \"{salePartner.Email}\"");
             Console.WriteLine($"  salePartner.IsCompany   => {salePartner.IsCompany}");
@@ -298,78 +313,32 @@ namespace Odoo.Examples
             Console.WriteLine($"  salePartner.CreditLimit => {salePartner.CreditLimit}");
             Console.WriteLine();
 
-            Console.WriteLine("  === Creating with Extended Values ===");
-            Console.WriteLine();
-            Console.WriteLine("  var newSalePartner = env.Create(new PartnerSaleExtensionValues");
-            Console.WriteLine("  {");
-            Console.WriteLine("      Name = \"Big Customer Corp\",");
-            Console.WriteLine("      Email = \"sales@bigcustomer.com\",");
-            Console.WriteLine("      IsCompany = true,");
-            Console.WriteLine("      IsCustomer = true,");
-            Console.WriteLine("      CreditLimit = 50000.00m");
-            Console.WriteLine("  });");
-            Console.WriteLine();
-            
-            var newSalePartner = env.Create(new PartnerSaleExtensionValues
-            {
-                Name = "Big Customer Corp",
-                Email = "sales@bigcustomer.com",
-                IsCompany = true,
-                IsCustomer = true,
-                CreditLimit = 50000.00m
-            });
-            
-            Console.WriteLine($"  Created ID: {newSalePartner.Id}");
-            Console.WriteLine($"  newSalePartner.Name        => \"{newSalePartner.Name}\"");
-            Console.WriteLine($"  newSalePartner.IsCustomer  => {newSalePartner.IsCustomer}");
-            Console.WriteLine($"  newSalePartner.CreditLimit => {newSalePartner.CreditLimit}");
-            Console.WriteLine();
-
-            Console.WriteLine("  === Modifying Sale-Specific Fields ===");
-            Console.WriteLine();
-            Console.WriteLine("  salePartner.CreditLimit = 75000.00m;");
-            salePartner.CreditLimit = 75000.00m;
-            Console.WriteLine($"  salePartner.CreditLimit (after update) => {salePartner.CreditLimit}");
-            Console.WriteLine();
-
-            Console.WriteLine("  === RecordSet with Extended Type ===");
-            Console.WriteLine();
-            var salePartners = env.PartnerSaleExtensions(new[] { 500, newSalePartner.Id });
-            Console.WriteLine($"  var salePartners = env.PartnerSaleExtensions(new[] {{ 500, {newSalePartner.Id} }});");
-            Console.WriteLine($"  salePartners.Count => {salePartners.Count}");
-            Console.WriteLine();
-            
-            Console.WriteLine("  // Filter by sale-specific field:");
-            Console.WriteLine("  var highCredit = salePartners.Where(p => p.CreditLimit > 10000);");
-            var highCredit = salePartners.Where(p => p.CreditLimit > 10000);
-            Console.WriteLine($"  highCredit.Count => {highCredit.Count}");
-            foreach (var p in highCredit)
-            {
-                Console.WriteLine($"    - {p.Name}: Credit Limit = {p.CreditLimit}");
-            }
+            Console.WriteLine("  === Identity Map Proof ===");
+            Console.WriteLine("  ReferenceEquals(basePartner, salePartner) => " + 
+                $"{ReferenceEquals(basePartner, salePartner)}");
+            Console.WriteLine("  Both interfaces return the SAME unified wrapper instance!");
             Console.WriteLine();
 
             // ═══════════════════════════════════════════════════════════════════
             // SUMMARY
             // ═══════════════════════════════════════════════════════════════════
             Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║  SUMMARY: What the Source Generator Provides                ║");
+            Console.WriteLine("║  SUMMARY: Unified Wrapper Architecture                      ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
-            Console.WriteLine("  ✓ ModelSchema.{Model}       - Compile-time tokens");
-            Console.WriteLine("  ✓ env.{Model}(id)           - Typed single record access");
-            Console.WriteLine("  ✓ env.{Models}(ids)         - Typed RecordSet access");
-            Console.WriteLine("  ✓ env.Create({Model}Values) - Typed record creation");
-            Console.WriteLine("  ✓ record.{Property}         - Typed property access");
-            Console.WriteLine("  ✓ {Model}BatchContext       - Efficient batch iteration");
-            Console.WriteLine("  ✓ Full IntelliSense         - IDE auto-completion");
-            Console.WriteLine("  ✓ Compile-time validation   - Catch errors at build time");
+            Console.WriteLine("  ✓ ModelSchema.{Model}           - Compile-time tokens");
+            Console.WriteLine("  ✓ env.GetRecord<T>(model, id)   - Typed single record access");
+            Console.WriteLine("  ✓ env.GetRecords<T>(model, ids) - Typed RecordSet access");
+            Console.WriteLine("  ✓ env.Create({Model}Values)     - Typed record creation");
+            Console.WriteLine("  ✓ {Model}BatchContext           - Efficient batch iteration");
+            Console.WriteLine("  ✓ Identity Map                  - Reference equality guaranteed");
+            Console.WriteLine("  ✓ Full IntelliSense             - IDE auto-completion");
+            Console.WriteLine("  ✓ Compile-time validation       - Catch errors at build time");
             Console.WriteLine();
-            Console.WriteLine("  ✓ ADDON EXTENSIONS:");
-            Console.WriteLine("    - Reference addon at compile-time to get typed access");
-            Console.WriteLine("    - Extended interfaces (e.g., IPartnerSaleExtension)");
-            Console.WriteLine("    - Access both base AND extended fields with type safety");
-            Console.WriteLine("    - Same record, different views (IPartnerBase vs IPartnerSaleExtension)");
+            Console.WriteLine("  ✓ UNIFIED WRAPPERS:");
+            Console.WriteLine("    - One class per model implementing ALL visible interfaces");
+            Console.WriteLine("    - Same instance regardless of which interface you request");
+            Console.WriteLine("    - Full polymorphism support across addons");
             Console.WriteLine();
             Console.WriteLine("=== Demo Complete ===");
         }
@@ -383,7 +352,7 @@ namespace Odoo.Examples
                 [101] = "Mitchell Admin",
                 [102] = "Azure Interior"
             };
-            cache.BulkLoad(DemoSchema.Partner.ModelToken, DemoSchema.Partner.Name, names);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Name, names);
 
             var emails = new Dictionary<int, string?>
             {
@@ -391,7 +360,7 @@ namespace Odoo.Examples
                 [101] = "admin@example.com",
                 [102] = "azure@example.com"
             };
-            cache.BulkLoad(DemoSchema.Partner.ModelToken, DemoSchema.Partner.Email, emails);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Email, emails);
 
             var isCompany = new Dictionary<int, bool>
             {
@@ -399,7 +368,7 @@ namespace Odoo.Examples
                 [101] = false,
                 [102] = true
             };
-            cache.BulkLoad(DemoSchema.Partner.ModelToken, DemoSchema.Partner.IsCompany, isCompany);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.IsCompany, isCompany);
 
             var streets = new Dictionary<int, string>
             {
@@ -407,7 +376,7 @@ namespace Odoo.Examples
                 [101] = "215 Vine St",
                 [102] = "4557 De Silva St"
             };
-            cache.BulkLoad(DemoSchema.Partner.ModelToken, DemoSchema.Partner.Street, streets);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Street, streets);
 
             var cities = new Dictionary<int, string>
             {
@@ -415,7 +384,7 @@ namespace Odoo.Examples
                 [101] = "Portland",
                 [102] = "Fremont"
             };
-            cache.BulkLoad(DemoSchema.Partner.ModelToken, DemoSchema.Partner.City, cities);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.City, cities);
         }
 
         private static void SeedProductData(IColumnarCache cache)
@@ -426,7 +395,7 @@ namespace Odoo.Examples
                 [201] = "Desk Lamp",
                 [202] = "Keyboard"
             };
-            cache.BulkLoad(DemoSchema.Product.ModelToken, DemoSchema.Product.Name, productNames);
+            cache.BulkLoad(ModelSchema.ProductProduct.ModelToken, ModelSchema.ProductProduct.Name, productNames);
 
             var prices = new Dictionary<int, decimal>
             {
@@ -434,7 +403,7 @@ namespace Odoo.Examples
                 [201] = 49.99m,
                 [202] = 79.99m
             };
-            cache.BulkLoad(DemoSchema.Product.ModelToken, DemoSchema.Product.ListPrice, prices);
+            cache.BulkLoad(ModelSchema.ProductProduct.ModelToken, ModelSchema.ProductProduct.ListPrice, prices);
 
             var types = new Dictionary<int, string>
             {
@@ -442,47 +411,42 @@ namespace Odoo.Examples
                 [201] = "consu",
                 [202] = "consu"
             };
-            cache.BulkLoad(DemoSchema.Product.ModelToken, DemoSchema.Product.ProductType, types);
+            cache.BulkLoad(ModelSchema.ProductProduct.ModelToken, ModelSchema.ProductProduct.ProductType, types);
         }
 
         private static void SeedExtendedPartnerData(IColumnarCache cache)
         {
-            // Use typed schema tokens from Odoo.Base for base fields
+            // Use unified model token for all partner fields
             var names = new Dictionary<int, string>
             {
                 [500] = "Premier Solutions Inc"
             };
-            cache.BulkLoad(Odoo.Generated.OdooBase.ModelSchema.PartnerBase.ModelToken,
-                Odoo.Generated.OdooBase.ModelSchema.PartnerBase.Name, names);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Name, names);
 
             var emails = new Dictionary<int, string?>
             {
                 [500] = "contact@premiersolutions.com"
             };
-            cache.BulkLoad(Odoo.Generated.OdooBase.ModelSchema.PartnerBase.ModelToken,
-                Odoo.Generated.OdooBase.ModelSchema.PartnerBase.Email, emails);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Email, emails);
 
             var isCompany = new Dictionary<int, bool>
             {
                 [500] = true
             };
-            cache.BulkLoad(Odoo.Generated.OdooBase.ModelSchema.PartnerBase.ModelToken,
-                Odoo.Generated.OdooBase.ModelSchema.PartnerBase.IsCompany, isCompany);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.IsCompany, isCompany);
 
-            // Use typed schema tokens from Odoo.Sale for sale-specific fields
+            // Sale-specific fields use same model token (unified model)
             var isCustomer = new Dictionary<int, bool>
             {
                 [500] = true
             };
-            cache.BulkLoad(Odoo.Generated.OdooSale.ModelSchema.PartnerSaleExtension.ModelToken,
-                Odoo.Generated.OdooSale.ModelSchema.PartnerSaleExtension.IsCustomer, isCustomer);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.IsCustomer, isCustomer);
 
             var creditLimit = new Dictionary<int, decimal>
             {
                 [500] = 25000.00m
             };
-            cache.BulkLoad(Odoo.Generated.OdooSale.ModelSchema.PartnerSaleExtension.ModelToken,
-                Odoo.Generated.OdooSale.ModelSchema.PartnerSaleExtension.CreditLimit, creditLimit);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.CreditLimit, creditLimit);
         }
     }
 }

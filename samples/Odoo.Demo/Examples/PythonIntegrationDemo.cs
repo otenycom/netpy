@@ -2,7 +2,8 @@ using System;
 using System.IO;
 using Odoo.Core;
 using Odoo.Base.Models;
-using Odoo.Generated.OdooBase;
+// Import unified wrappers and schema from Demo
+using Odoo.Generated.OdooDemo;
 using Odoo.Python;
 using Python.Runtime;
 
@@ -10,6 +11,7 @@ namespace Odoo.Examples
 {
     /// <summary>
     /// Demonstrates Python integration with the Odoo ORM.
+    /// Uses the new unified wrapper architecture.
     /// </summary>
     public class PythonIntegrationDemo
     {
@@ -124,7 +126,8 @@ result = f'Environment user: {env.UserId}'
 
         private static void SeedSampleData(IColumnarCache cache)
         {
-            cache.BulkLoadRows("res.partner", ModelSchema.PartnerBase.ModelToken, new()
+            // Use unified schema for seeding data
+            cache.BulkLoadRows("res.partner", ModelSchema.ResPartner.ModelToken, new()
             {
                 [10] = new()
                 {

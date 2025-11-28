@@ -7,10 +7,11 @@ using Odoo.Core.Modules;
 using Odoo.Core.Pipeline;
 // Import typed access to Odoo.Base models (since we reference it directly)
 using Odoo.Base.Models;
-using Odoo.Base.Models.Generated;
-using Odoo.Generated.OdooBase;
+using Odoo.Sale.Models;
+// Import unified wrappers from Demo (sees cumulative interfaces)
+using Odoo.Generated.OdooDemo;
 using Odoo.Generated.OdooBase.Logic; // Import generated logic extensions
-using Odoo.Sale.Models.Generated; // For PartnerSaleWrapper
+
 namespace Odoo.Examples
 {
     public class ModularityDemo
@@ -129,16 +130,16 @@ namespace Odoo.Examples
             });
             Console.WriteLine($"      → Created ID: {dynamicPartner.Id}");
             
-            // APPROACH B: Strongly-typed API (requires compile-time reference to model)
+            // APPROACH B: Strongly-typed API with unified wrappers
             Console.WriteLine("\n   B) Strongly-typed API (compile-time safety, IntelliSense):");
-            Console.WriteLine("      var typedPartner = env.Create(new PartnerBaseValues {");
+            Console.WriteLine("      var typedPartner = env.Create(new ResPartnerValues {");
             Console.WriteLine("          Name = \"Typed Partner\",");
             Console.WriteLine("          Email = \"typed@example.com\",");
             Console.WriteLine("          IsCompany = true");
             Console.WriteLine("      });");
             
             // Since we reference Odoo.Base, we have access to the typed API!
-            var typedPartner = env.Create(new PartnerBaseValues {
+            var typedPartner = env.Create(new ResPartnerValues {
                 Name = "Typed Partner",
                 Email = "typed@example.com",
                 IsCompany = true
@@ -148,14 +149,14 @@ namespace Odoo.Examples
             Console.WriteLine($"      → IsCompany: {typedPartner.IsCompany}");
 
             // ═══════════════════════════════════════════════════════════════════
-            // 7. Typed Record Access & Universal Handle
+            // 7. Typed Record Access & Identity Map
             // ═══════════════════════════════════════════════════════════════════
-            Console.WriteLine("\n7. Typed Record Access & Universal Handle:");
+            Console.WriteLine("\n7. Typed Record Access & Identity Map:");
             Console.WriteLine("   ─────────────────────────────────────────────────────────────");
             
-            Console.WriteLine("\n   // Single record with full IntelliSense:");
-            Console.WriteLine("   var partner = env.PartnerBase(typedPartner.Id);");
-            var partner = env.PartnerBase(typedPartner.Id);
+            Console.WriteLine("\n   // Single record with GetRecord<T>:");
+            Console.WriteLine($"   var partner = env.GetRecord<IPartnerBase>(\"res.partner\", {typedPartner.Id});");
+            var partner = env.GetRecord<IPartnerBase>("res.partner", typedPartner.Id);
             Console.WriteLine($"   partner.Name      → \"{partner.Name}\"");
             Console.WriteLine($"   partner.Email     → \"{partner.Email}\"");
             Console.WriteLine($"   partner.IsCompany → {partner.IsCompany}");
@@ -165,26 +166,24 @@ namespace Odoo.Examples
             partner.Email = "updated@example.com";
             Console.WriteLine($"   partner.Email (after update) → \"{partner.Email}\"");
 
-            Console.WriteLine("\n   // Zero-Cost Casting (The 'As' Pattern):");
-            Console.WriteLine("   // We can view the SAME record as a Sale Partner without allocation.");
+            Console.WriteLine("\n   // Unified Wrapper - Same record via different interfaces:");
+            Console.WriteLine("   // The identity map ensures we get the SAME instance!");
             
-            // Since we reference Odoo.Sale, we can cast the base partner to the sale extension wrapper
-            // This requires accessing the underlying Handle via IRecordWrapper
-            if (partner is IRecordWrapper wrapper)
-            {
-                var salePartner = wrapper.Handle.As<PartnerSaleExtensionWrapper>();
-                Console.WriteLine("   var salePartner = ((IRecordWrapper)partner).Handle.As<PartnerSaleExtensionWrapper>();");
+            // Get the same record as IPartnerSaleExtension - same unified wrapper instance
+            var salePartner = env.GetRecord<IPartnerSaleExtension>("res.partner", typedPartner.Id);
+            Console.WriteLine($"   var salePartner = env.GetRecord<IPartnerSaleExtension>(\"res.partner\", {typedPartner.Id});");
 
-                // Use sale-specific fields
-                salePartner.IsCustomer = true;
-                salePartner.CreditLimit = 5000.50m;
+            // Use sale-specific fields
+            salePartner.IsCustomer = true;
+            salePartner.CreditLimit = 5000.50m;
 
-                Console.WriteLine($"   salePartner.IsCustomer → {salePartner.IsCustomer}");
-                Console.WriteLine($"   salePartner.CreditLimit → {salePartner.CreditLimit}");
-
-                // Use inherited base fields
-                Console.WriteLine($"   salePartner.Name (inherited) → \"{salePartner.Name}\"");
-            }
+            Console.WriteLine($"   salePartner.IsCustomer → {salePartner.IsCustomer}");
+            Console.WriteLine($"   salePartner.CreditLimit → {salePartner.CreditLimit}");
+            Console.WriteLine($"   salePartner.Name (base field) → \"{salePartner.Name}\"");
+            
+            Console.WriteLine($"\n   // Identity check:");
+            Console.WriteLine($"   ReferenceEquals(partner, salePartner) → {ReferenceEquals(partner, salePartner)}");
+            Console.WriteLine("   Both interfaces return the SAME unified wrapper instance!");
 
             // ═══════════════════════════════════════════════════════════════════
             // 8. Typed RecordSet Operations
@@ -193,11 +192,11 @@ namespace Odoo.Examples
             Console.WriteLine("   ─────────────────────────────────────────────────────────────");
             
             // Create a few more partners
-            var partner2 = env.Create(new PartnerBaseValues { Name = "Contact A", IsCompany = false });
-            var partner3 = env.Create(new PartnerBaseValues { Name = "Company B", IsCompany = true });
+            var partner2 = env.Create(new ResPartnerValues { Name = "Contact A", IsCompany = false });
+            var partner3 = env.Create(new ResPartnerValues { Name = "Company B", IsCompany = true });
             
-            var partners = env.PartnerBases(new[] { typedPartner.Id, partner2.Id, partner3.Id });
-            Console.WriteLine($"\n   var partners = env.PartnerBases(new[] {{ {typedPartner.Id}, {partner2.Id}, {partner3.Id} }});");
+            var partners = env.GetRecords<IPartnerBase>("res.partner", new[] { typedPartner.Id, partner2.Id, partner3.Id });
+            Console.WriteLine($"\n   var partners = env.GetRecords<IPartnerBase>(\"res.partner\", new[] {{ {typedPartner.Id}, {partner2.Id}, {partner3.Id} }});");
             Console.WriteLine($"   partners.Count → {partners.Count}");
             
             Console.WriteLine("\n   // Type-safe LINQ filtering:");
@@ -219,11 +218,7 @@ namespace Odoo.Examples
             try
             {
                 // Create a typed recordset for the pipeline
-                var pipelinePartners = env.PartnerBases(new[] { typedPartner.Id });
-                
-                // Invoke pipeline
-                // Ideally we would use the generated extension method: pipelinePartners.ActionVerify();
-                // But for this demo, we'll use the generic pipeline lookup to show the mechanism.
+                var pipelinePartners = env.GetRecords<IPartnerBase>("res.partner", new[] { typedPartner.Id });
                 
                 Console.WriteLine("   Invoking pipeline...");
                 
@@ -246,16 +241,18 @@ namespace Odoo.Examples
             // Summary
             // ═══════════════════════════════════════════════════════════════════
             Console.WriteLine("\n╔══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║  TYPED API SUMMARY                                           ║");
+            Console.WriteLine("║  UNIFIED WRAPPER API SUMMARY                                 ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
-            Console.WriteLine("  When you reference a module with the source generator:");
+            Console.WriteLine("  env.Create(new {Model}Values {{ ... }}) - Typed creation");
+            Console.WriteLine("  env.GetRecord<T>(model, id)            - Typed single record");
+            Console.WriteLine("  env.GetRecords<T>(model, ids)          - Typed RecordSet");
+            Console.WriteLine("  record.{Property}                      - Typed property access");
+            Console.WriteLine("  recordset.Where(predicate)             - Type-safe filtering");
             Console.WriteLine();
-            Console.WriteLine("  ✓ env.Create(new {Model}Values { ... }) - Typed creation");
-            Console.WriteLine("  ✓ env.{Model}(id)                       - Typed single record");
-            Console.WriteLine("  ✓ env.{Models}(ids)                     - Typed RecordSet");
-            Console.WriteLine("  ✓ record.{Property}                     - Typed property access");
-            Console.WriteLine("  ✓ recordset.Where(predicate)            - Type-safe filtering");
+            Console.WriteLine("  ✓ Identity Map: Same ID always returns same instance");
+            Console.WriteLine("  ✓ Unified Wrapper: One class implements ALL interfaces");
+            Console.WriteLine("  ✓ Full Polymorphism: IPartnerBase and IPartnerSaleExtension share instance");
             Console.WriteLine();
             Console.WriteLine("  Dynamic API (env[\"model\"].Create(...)) is still available");
             Console.WriteLine("  for interoperability with dynamically loaded modules.");

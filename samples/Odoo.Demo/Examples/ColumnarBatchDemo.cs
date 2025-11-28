@@ -3,14 +3,17 @@ using System.Diagnostics;
 using System.Linq;
 using Odoo.Core;
 using Odoo.Base.Models;
+// Import unified wrappers and schema from Demo
+using Odoo.Generated.OdooDemo;
+// Import batch context (generated in the namespace of the first interface)
 using Odoo.Base.Models.Generated;
-using Odoo.Generated.OdooBase;
 
 namespace Odoo.Examples
 {
     /// <summary>
     /// Demonstrates the new Data-Oriented Design optimizations with columnar storage.
     /// Shows both traditional and optimized batch access patterns.
+    /// Uses the new unified wrapper architecture with GetRecord<T> and GetRecords<T> APIs.
     /// </summary>
     public class ColumnarBatchDemo
     {
@@ -24,14 +27,14 @@ namespace Odoo.Examples
             // Simulate loading some partner data
             LoadSampleData(env);
 
-            // Demo 1: Traditional single-record access (still works, backward compatible)
-            Console.WriteLine("1. Traditional Single Record Access:");
+            // Demo 1: Traditional single-record access using new API
+            Console.WriteLine("1. Single Record Access with GetRecord<T>:");
             SingleRecordAccessDemo(env);
             Console.WriteLine();
 
-            // Demo 2: Traditional iteration (works but less optimal)
-            Console.WriteLine("2. Traditional Iteration:");
-            TraditionalIterationDemo(env);
+            // Demo 2: RecordSet iteration using new GetRecords<T> API
+            Console.WriteLine("2. RecordSet Iteration with GetRecords<T>:");
+            RecordSetIterationDemo(env);
             Console.WriteLine();
 
             // Demo 3: Optimized batch iteration using BatchContext
@@ -51,35 +54,36 @@ namespace Odoo.Examples
             // Simulate bulk loading data (this would normally come from database)
             var partnerIds = Enumerable.Range(1, 100).ToArray();
             
-            // Load names
+            // Load names - using unified schema
             var names = partnerIds.ToDictionary(
                 id => id,
                 id => $"Partner {id}"
             );
-            env.Columns.BulkLoad(ModelSchema.PartnerBase.ModelToken, ModelSchema.PartnerBase.Name, names);
+            env.Columns.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Name, names);
 
             // Load emails
             var emails = partnerIds.ToDictionary(
                 id => id,
                 id => $"partner{id}@example.com"
             );
-            env.Columns.BulkLoad(ModelSchema.PartnerBase.ModelToken, ModelSchema.PartnerBase.Email, emails);
+            env.Columns.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Email, emails);
 
             // Load IsCompany flags
             var isCompanyFlags = partnerIds.ToDictionary(
                 id => id,
                 id => id % 3 == 0 // Every 3rd partner is a company
             );
-            env.Columns.BulkLoad(ModelSchema.PartnerBase.ModelToken, ModelSchema.PartnerBase.IsCompany, isCompanyFlags);
+            env.Columns.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.IsCompany, isCompanyFlags);
 
             Console.WriteLine($"Loaded {partnerIds.Length} partners into columnar cache\n");
         }
 
         private static void SingleRecordAccessDemo(OdooEnvironment env)
         {
-            // Access a single partner using the new optimized path
-            var partner = env.PartnerBase(1);
+            // Access a single partner using the new GetRecord<T> API
+            var partner = env.GetRecord<IPartnerBase>("res.partner", 1);
             
+            Console.WriteLine($"  var partner = env.GetRecord<IPartnerBase>(\"res.partner\", 1);");
             Console.WriteLine($"  Partner ID: {partner.Id}");
             Console.WriteLine($"  Name: {partner.Name}");
             Console.WriteLine($"  Email: {partner.Email}");
@@ -88,14 +92,19 @@ namespace Odoo.Examples
             // Writing still works
             partner.Name = "Updated Partner Name";
             Console.WriteLine($"  Updated Name: {partner.Name}");
+            
+            // Identity map demonstration
+            var partner2 = env.GetRecord<IPartnerBase>("res.partner", 1);
+            Console.WriteLine($"  Same instance check: {ReferenceEquals(partner, partner2)}");
         }
 
-        private static void TraditionalIterationDemo(OdooEnvironment env)
+        private static void RecordSetIterationDemo(OdooEnvironment env)
         {
             var partnerIds = Enumerable.Range(1, 10).ToArray();
-            var partners = env.PartnerBases(partnerIds);
+            var partners = env.GetRecords<IPartnerBase>("res.partner", partnerIds);
 
-            Console.WriteLine($"  Processing {partners.Count} partners (traditional way):");
+            Console.WriteLine($"  var partners = env.GetRecords<IPartnerBase>(\"res.partner\", ids);");
+            Console.WriteLine($"  Processing {partners.Count} partners:");
             
             int companyCount = 0;
             foreach (var partner in partners)
@@ -116,8 +125,8 @@ namespace Odoo.Examples
 
             Console.WriteLine($"  Processing {partnerIds.Length} partners (optimized batch way):");
             
-            // Create batch context on the stack
-            var batch = new PartnerBaseBatchContext(env.Columns, partnerIds);
+            // Create batch context on the stack - uses unified schema
+            var batch = new ResPartnerBatchContext(env.Columns, partnerIds);
 
             int companyCount = 0;
             for (int i = 0; i < partnerIds.Length; i++)
@@ -144,11 +153,11 @@ namespace Odoo.Examples
 
             Console.WriteLine($"  Testing with {partnerIds.Length} partners, {iterations} iterations each\n");
 
-            // Test 1: Traditional iteration
+            // Test 1: RecordSet iteration using new API
             var sw = Stopwatch.StartNew();
             for (int iter = 0; iter < iterations; iter++)
             {
-                var partners = env.PartnerBases(partnerIds);
+                var partners = env.GetRecords<IPartnerBase>("res.partner", partnerIds);
                 int count = 0;
                 foreach (var partner in partners)
                 {
@@ -160,14 +169,14 @@ namespace Odoo.Examples
                 }
             }
             sw.Stop();
-            var traditionalTime = sw.ElapsedMilliseconds;
-            Console.WriteLine($"  Traditional iteration: {traditionalTime}ms");
+            var recordSetTime = sw.ElapsedMilliseconds;
+            Console.WriteLine($"  RecordSet iteration: {recordSetTime}ms");
 
-            // Test 2: Optimized batch iteration
+            // Test 2: Optimized batch iteration with BatchContext
             sw.Restart();
             for (int iter = 0; iter < iterations; iter++)
             {
-                var batch = new PartnerBaseBatchContext(env.Columns, partnerIds);
+                var batch = new ResPartnerBatchContext(env.Columns, partnerIds);
                 int count = 0;
                 
                 var nameColumn = batch.GetNameColumn();
@@ -183,14 +192,14 @@ namespace Odoo.Examples
                 }
             }
             sw.Stop();
-            var optimizedTime = sw.ElapsedMilliseconds;
-            Console.WriteLine($"  Optimized batch iteration: {optimizedTime}ms");
+            var batchTime = sw.ElapsedMilliseconds;
+            Console.WriteLine($"  Optimized batch iteration: {batchTime}ms");
 
-            if (traditionalTime > 0)
+            if (recordSetTime > 0)
             {
-                var speedup = (double)traditionalTime / optimizedTime;
+                var speedup = (double)recordSetTime / batchTime;
                 Console.WriteLine($"\n  Performance improvement: {speedup:F1}x faster");
-                Console.WriteLine($"  Time saved: {traditionalTime - optimizedTime}ms ({(1 - (double)optimizedTime/traditionalTime)*100:F1}% reduction)");
+                Console.WriteLine($"  Time saved: {recordSetTime - batchTime}ms ({(1 - (double)batchTime/recordSetTime)*100:F1}% reduction)");
             }
         }
 
@@ -201,7 +210,8 @@ namespace Odoo.Examples
         {
             Console.WriteLine("\n=== Advanced Batch Calculation Example ===\n");
 
-            var batch = new PartnerBaseBatchContext(env.Columns, partnerIds);
+            // Use unified batch context
+            var batch = new ResPartnerBatchContext(env.Columns, partnerIds);
             
             // Pre-load all needed columns (triggers single batch fetch)
             var names = batch.GetNameColumn();

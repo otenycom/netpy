@@ -1,13 +1,14 @@
 using System;
 using Odoo.Core;
 using Odoo.Base.Models;
-using Odoo.Base.Models.Generated;
-using Odoo.Generated.OdooBase;
+// Import unified wrappers and schema from the generated code
+using Odoo.Generated.OdooDemo;
 
 namespace Odoo.Examples
 {
     /// <summary>
     /// Demonstrates basic usage of the Odoo ORM in C#.
+    /// Uses the new unified wrapper architecture with identity map support.
     /// </summary>
     public class BasicUsageDemo
     {
@@ -23,9 +24,9 @@ namespace Odoo.Examples
             // 2. Seed some sample data
             SeedSampleData(env.Columns);
 
-            // 3. Access a single partner record
+            // 3. Access a single partner record using new GetRecord<T> API
             Console.WriteLine("2. Accessing a single partner:");
-            var partner = env.PartnerBase(10);
+            var partner = env.GetRecord<IPartnerBase>("res.partner", 10);
             Console.WriteLine($"   Partner Name: {partner.Name}");
             Console.WriteLine($"   Partner Email: {partner.Email}");
             Console.WriteLine($"   Is Company: {partner.IsCompany}");
@@ -37,13 +38,13 @@ namespace Odoo.Examples
             Console.WriteLine($"   Updated Email: {partner.Email}");
             
             // Show dirty fields
-            var dirtyFields = env.Columns.GetDirtyFieldNames("res.partner", ModelSchema.PartnerBase.ModelToken, 10);
+            var dirtyFields = env.Columns.GetDirtyFieldNames("res.partner", ModelSchema.ResPartner.ModelToken, 10);
             Console.WriteLine($"   Dirty Fields: {string.Join(", ", dirtyFields)}");
             Console.WriteLine();
 
-            // 5. Access multiple records (RecordSet)
+            // 5. Access multiple records (RecordSet) using new GetRecords<T> API
             Console.WriteLine("4. Working with multiple records:");
-            var partners = env.PartnerBases(new[] { 10, 11, 12 });
+            var partners = env.GetRecords<IPartnerBase>("res.partner", new[] { 10, 11, 12 });
             Console.WriteLine($"   Total partners: {partners.Count}");
             
             foreach (var p in partners)
@@ -69,6 +70,14 @@ namespace Odoo.Examples
             Console.WriteLine($"   Same cache: {userEnv.Columns == env.Columns}");
             Console.WriteLine();
 
+            // 8. Identity map - same ID gives same instance
+            Console.WriteLine("7. Identity Map demonstration:");
+            var partner1 = env.GetRecord<IPartnerBase>("res.partner", 10);
+            var partner2 = env.GetRecord<IPartnerBase>("res.partner", 10);
+            Console.WriteLine($"   partner1 == partner2: {ReferenceEquals(partner1, partner2)}");
+            Console.WriteLine("   (Same ID returns same object instance via identity map!)");
+            Console.WriteLine();
+
             Console.WriteLine("=== Demo Complete ===");
         }
 
@@ -81,7 +90,7 @@ namespace Odoo.Examples
                 [11] = "Mitchell Admin",
                 [12] = "Azure Interior"
             };
-            cache.BulkLoad(ModelSchema.PartnerBase.ModelToken, ModelSchema.PartnerBase.Name, names);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Name, names);
 
             var emails = new Dictionary<int, string?>
             {
@@ -89,7 +98,7 @@ namespace Odoo.Examples
                 [11] = "admin@example.com",
                 [12] = "azure@example.com"
             };
-            cache.BulkLoad(ModelSchema.PartnerBase.ModelToken, ModelSchema.PartnerBase.Email, emails);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Email, emails);
 
             var isCompany = new Dictionary<int, bool>
             {
@@ -97,7 +106,7 @@ namespace Odoo.Examples
                 [11] = false,
                 [12] = true
             };
-            cache.BulkLoad(ModelSchema.PartnerBase.ModelToken, ModelSchema.PartnerBase.IsCompany, isCompany);
+            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.IsCompany, isCompany);
         }
     }
 }

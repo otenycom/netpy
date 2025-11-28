@@ -194,15 +194,15 @@ namespace Odoo.Core
     }
 
     /// <summary>
-    /// Interface for generated struct wrappers.
-    /// Allows zero-cost casting from RecordHandle.
+    /// Interface for generated unified wrapper classes.
+    /// Supports identity map and reference equality.
     /// </summary>
     public interface IRecordWrapper : IOdooRecord
     {
         /// <summary>
-        /// The underlying handle.
+        /// The underlying handle containing (Env, Id, ModelToken).
         /// </summary>
-        RecordHandle Handle { get; init; }
+        RecordHandle Handle { get; }
     }
 
     // --- Search Domain Support ---
