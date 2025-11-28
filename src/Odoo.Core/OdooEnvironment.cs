@@ -25,6 +25,14 @@ namespace Odoo.Core
         public IPipelineBuilder Methods => _pipelineRegistry;
         public IdGenerator IdGenerator { get; }
 
+        /// <summary>
+        /// Fast access to compiled pipeline delegates.
+        /// </summary>
+        public TDelegate GetPipeline<TDelegate>(string model, string method) where TDelegate : Delegate
+        {
+            return _pipelineRegistry.GetPipeline<TDelegate>(model, method);
+        }
+
         public OdooEnvironment(int userId, IColumnarCache? cache = null, ModelRegistry? modelRegistry = null, PipelineRegistry? pipelineRegistry = null)
         {
             UserId = userId;

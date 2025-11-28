@@ -9,6 +9,7 @@ using Odoo.Core.Pipeline;
 using Odoo.Base.Models;
 using Odoo.Base.Models.Generated;
 using Odoo.Generated.OdooBase;
+using Odoo.Generated.OdooBase.Logic; // Import generated logic extensions
 
 namespace Odoo.Examples
 {
@@ -147,9 +148,9 @@ namespace Odoo.Examples
             Console.WriteLine($"      → IsCompany: {typedPartner.IsCompany}");
 
             // ═══════════════════════════════════════════════════════════════════
-            // 7. Typed Record Access
+            // 7. Typed Record Access & Universal Handle
             // ═══════════════════════════════════════════════════════════════════
-            Console.WriteLine("\n7. Typed Record Access:");
+            Console.WriteLine("\n7. Typed Record Access & Universal Handle:");
             Console.WriteLine("   ─────────────────────────────────────────────────────────────");
             
             Console.WriteLine("\n   // Single record with full IntelliSense:");
@@ -159,10 +160,19 @@ namespace Odoo.Examples
             Console.WriteLine($"   partner.Email     → \"{partner.Email}\"");
             Console.WriteLine($"   partner.IsCompany → {partner.IsCompany}");
             
-            Console.WriteLine("\n   // Modify with type safety:");
+            Console.WriteLine("\n   // Modify with type safety (Invokes Property Pipeline):");
             Console.WriteLine("   partner.Email = \"updated@example.com\";");
             partner.Email = "updated@example.com";
             Console.WriteLine($"   partner.Email (after update) → \"{partner.Email}\"");
+
+            Console.WriteLine("\n   // Zero-Cost Casting (The 'As' Pattern):");
+            Console.WriteLine("   // We can view the SAME record as a Sale Partner without allocation.");
+            // Note: In a real app, we would reference Odoo.Sale.Models.IPartnerSaleExtension
+            // But since this demo project doesn't reference Odoo.Sale directly (it loads it dynamically),
+            // we can't demonstrate the static cast here easily without adding the reference.
+            // However, the architecture now supports:
+            // var salePartner = partner.Handle.As<PartnerSaleWrapper>();
+            Console.WriteLine("   // var salePartner = partner.Handle.As<PartnerSaleWrapper>();");
 
             // ═══════════════════════════════════════════════════════════════════
             // 8. Typed RecordSet Operations
@@ -199,14 +209,18 @@ namespace Odoo.Examples
                 // Create a typed recordset for the pipeline
                 var pipelinePartners = env.PartnerBases(new[] { typedPartner.Id });
                 
-                // Get and invoke the pipeline
-                var pipeline = pipelineRegistry.GetPipeline<Delegate>("res.partner", "action_verify");
-                Console.WriteLine($"   Pipeline delegate type: {pipeline.GetType().Name}");
+                // Invoke pipeline
+                // Ideally we would use the generated extension method: pipelinePartners.ActionVerify();
+                // But for this demo, we'll use the generic pipeline lookup to show the mechanism.
                 
-                // Note: Pipeline invocation still requires DynamicInvoke due to the
-                // compiled delegate chain having a dynamic signature. Future enhancement
-                // could generate typed extension methods for pipeline calls.
-                pipeline.DynamicInvoke(pipelinePartners);
+                Console.WriteLine("   Invoking pipeline...");
+                
+                // Get the pipeline delegate (it's a void delegate taking RecordSet<IPartnerBase>)
+                var pipeline = env.Methods.GetPipeline<Action<RecordSet<IPartnerBase>>>("res.partner", "action_verify");
+                
+                // Invoke directly (no reflection!)
+                pipeline(pipelinePartners);
+                
                 Console.WriteLine("   ✓ Pipeline executed successfully!");
             }
             catch (Exception ex)

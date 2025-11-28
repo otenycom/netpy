@@ -58,6 +58,11 @@ namespace Odoo.Core
         /// The pipeline registry for method overrides.
         /// </summary>
         Pipeline.IPipelineBuilder Methods { get; }
+
+        /// <summary>
+        /// Fast access to compiled pipeline delegates.
+        /// </summary>
+        TDelegate GetPipeline<TDelegate>(string model, string method) where TDelegate : Delegate;
         
         /// <summary>
         /// Factory method to get a recordset wrapper for a specific interface.
@@ -175,7 +180,7 @@ namespace Odoo.Core
     /// Base interface that all Odoo Model Interfaces must inherit from.
     /// Provides access to record ID and environment.
     /// </summary>
-    public interface IOdooRecord 
+    public interface IOdooRecord
     {
         /// <summary>
         /// The database ID of this record.
@@ -186,6 +191,18 @@ namespace Odoo.Core
         /// The environment context.
         /// </summary>
         IEnvironment Env { get; }
+    }
+
+    /// <summary>
+    /// Interface for generated struct wrappers.
+    /// Allows zero-cost casting from RecordHandle.
+    /// </summary>
+    public interface IRecordWrapper : IOdooRecord
+    {
+        /// <summary>
+        /// The underlying handle.
+        /// </summary>
+        RecordHandle Handle { get; init; }
     }
 
     // --- Search Domain Support ---
