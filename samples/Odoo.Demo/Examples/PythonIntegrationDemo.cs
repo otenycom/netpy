@@ -24,7 +24,25 @@ namespace Odoo.Examples
             SeedSampleData(env.Columns);
 
             // 2. Create Python module loader
-            var scriptsPath = Path.Combine(Directory.GetCurrentDirectory(), "Scripts");
+            var scriptsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts");
+            if (!Directory.Exists(scriptsPath))
+            {
+                // Try to find Scripts relative to the project root if running from there
+                var potentialPaths = new[]
+                {
+                    Path.Combine(Directory.GetCurrentDirectory(), "samples", "Odoo.Demo", "Scripts"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "Scripts")
+                };
+
+                foreach (var path in potentialPaths)
+                {
+                    if (Directory.Exists(path))
+                    {
+                        scriptsPath = path;
+                        break;
+                    }
+                }
+            }
             var moduleLoader = new PythonModuleLoader(scriptsPath);
 
             Console.WriteLine($"1. Initialized Python module loader");

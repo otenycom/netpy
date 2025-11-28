@@ -10,7 +10,7 @@ using Odoo.Base.Models;
 using Odoo.Base.Models.Generated;
 using Odoo.Generated.OdooBase;
 using Odoo.Generated.OdooBase.Logic; // Import generated logic extensions
-
+using Odoo.Sale.Models.Generated; // For PartnerSaleWrapper
 namespace Odoo.Examples
 {
     public class ModularityDemo
@@ -167,12 +167,24 @@ namespace Odoo.Examples
 
             Console.WriteLine("\n   // Zero-Cost Casting (The 'As' Pattern):");
             Console.WriteLine("   // We can view the SAME record as a Sale Partner without allocation.");
-            // Note: In a real app, we would reference Odoo.Sale.Models.IPartnerSaleExtension
-            // But since this demo project doesn't reference Odoo.Sale directly (it loads it dynamically),
-            // we can't demonstrate the static cast here easily without adding the reference.
-            // However, the architecture now supports:
-            // var salePartner = partner.Handle.As<PartnerSaleWrapper>();
-            Console.WriteLine("   // var salePartner = partner.Handle.As<PartnerSaleWrapper>();");
+            
+            // Since we reference Odoo.Sale, we can cast the base partner to the sale extension wrapper
+            // This requires accessing the underlying Handle via IRecordWrapper
+            if (partner is IRecordWrapper wrapper)
+            {
+                var salePartner = wrapper.Handle.As<PartnerSaleExtensionWrapper>();
+                Console.WriteLine("   var salePartner = ((IRecordWrapper)partner).Handle.As<PartnerSaleExtensionWrapper>();");
+
+                // Use sale-specific fields
+                salePartner.IsCustomer = true;
+                salePartner.CreditLimit = 5000.50m;
+
+                Console.WriteLine($"   salePartner.IsCustomer → {salePartner.IsCustomer}");
+                Console.WriteLine($"   salePartner.CreditLimit → {salePartner.CreditLimit}");
+
+                // Use inherited base fields
+                Console.WriteLine($"   salePartner.Name (inherited) → \"{salePartner.Name}\"");
+            }
 
             // ═══════════════════════════════════════════════════════════════════
             // 8. Typed RecordSet Operations
