@@ -115,13 +115,5 @@
             ],
             "justMyCode": false
         }
-    ],
-    "compounds": [
-        {
-            "name": "Debug Selected Test (Compound)",
-            "configurations": ["Attach to TestHost"],
-            "preLaunchTask": "debug-test-selected",
-            "stopAll": true
-        }
     ]
 }
