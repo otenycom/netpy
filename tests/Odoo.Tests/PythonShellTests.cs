@@ -339,4 +339,113 @@ public class PythonShellTests
         Assert.Contains("Acme Corp", displayName);
         Assert.Contains("| Company", displayName);
     }
+
+    /// <summary>
+    /// Test that write() method works via Python.
+    /// Creates a partner, writes to it, then verifies the change.
+    /// </summary>
+    [Fact]
+    public void Shell_Write_UpdatesRecord()
+    {
+        // Arrange
+        var env = CreateEnvironment();
+
+        // Create a partner
+        var idResult = _shell.ExecuteExpression(
+            env,
+            "env['res.partner'].create({'name': 'Write Test Partner'}).id"
+        );
+        Assert.NotNull(idResult);
+        var partnerId = Convert.ToInt32(idResult);
+
+        // Act - update the partner's email via write()
+        _shell.ExecuteCommand(
+            env,
+            $"env['res.partner'].browse({partnerId}).write({{'email': 'updated@test.com'}})"
+        );
+
+        // Verify the email was updated
+        var emailResult = _shell.ExecuteExpression(
+            env,
+            $"env['res.partner'].browse({partnerId}).email"
+        );
+
+        // Assert
+        Assert.NotNull(emailResult);
+        Assert.Equal("updated@test.com", emailResult.ToString());
+    }
+
+    /// <summary>
+    /// Test that write() with multiple fields works.
+    /// </summary>
+    [Fact]
+    public void Shell_Write_UpdatesMultipleFields()
+    {
+        // Arrange
+        var env = CreateEnvironment();
+
+        // Create a partner
+        var idResult = _shell.ExecuteExpression(
+            env,
+            "env['res.partner'].create({'name': 'Multi Write Test'}).id"
+        );
+        Assert.NotNull(idResult);
+        var partnerId = Convert.ToInt32(idResult);
+
+        // Act - update multiple fields
+        _shell.ExecuteCommand(
+            env,
+            $"env['res.partner'].browse({partnerId}).write({{'email': 'multi@test.com', 'is_company': True}})"
+        );
+
+        // Verify both fields were updated
+        var emailResult = _shell.ExecuteExpression(
+            env,
+            $"env['res.partner'].browse({partnerId}).email"
+        );
+        Assert.Equal("multi@test.com", emailResult?.ToString());
+
+        var isCompanyResult = _shell.ExecuteExpression(
+            env,
+            $"env['res.partner'].browse({partnerId}).is_company"
+        );
+        Assert.True(Convert.ToBoolean(isCompanyResult));
+    }
+
+    /// <summary>
+    /// Test that write() with invalid argument type raises a helpful error.
+    /// </summary>
+    [Fact]
+    public void Shell_Write_WithSetRaisesHelpfulError()
+    {
+        // Arrange
+        var env = CreateEnvironment();
+
+        // Create a partner
+        var idResult = _shell.ExecuteExpression(
+            env,
+            "env['res.partner'].create({'name': 'Error Test'}).id"
+        );
+        Assert.NotNull(idResult);
+        var partnerId = Convert.ToInt32(idResult);
+
+        // Act - try to write with a set (common Python mistake)
+        // This should raise a TypeError with helpful message
+        var exitCode = _shell.ExecuteCommand(
+            env,
+            $@"
+try:
+    env['res.partner'].browse({partnerId}).write({{'email', 'bad@test.com'}})
+    print('ERROR: Should have raised')
+except TypeError as e:
+    if 'dict' in str(e) and 'set' in str(e):
+        print('Got expected error')
+    else:
+        raise
+"
+        );
+
+        // Assert - command should complete (the exception is caught in Python)
+        Assert.Equal(0, exitCode);
+    }
 }

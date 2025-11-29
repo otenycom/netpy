@@ -123,7 +123,15 @@ class RecordSetProxy:
         return [getattr(rec, name) for rec in self]
     
     def write(self, vals):
-        return self._recordset.Write(vals)
+        if not isinstance(vals, dict):
+            raise TypeError(f'write() expects a dict, got {type(vals).__name__}. Use colon not comma: {{""key"": value}}')
+        # Convert Python dict to C# Dictionary
+        from System.Collections.Generic import Dictionary
+        from System import String, Object
+        csharp_dict = Dictionary[String, Object]()
+        for key, value in vals.items():
+            csharp_dict[str(key)] = value
+        return self._recordset.Write(csharp_dict)
     
     def read(self, fields=None):
         return self._recordset.Read(fields)
@@ -155,7 +163,15 @@ class RecordProxy:
             self._record.__setattr__(name, value)
     
     def write(self, vals):
-        return self._record.Write(vals)
+        if not isinstance(vals, dict):
+            raise TypeError(f'write() expects a dict, got {type(vals).__name__}. Use colon not comma: {{""key"": value}}')
+        # Convert Python dict to C# Dictionary
+        from System.Collections.Generic import Dictionary
+        from System import String, Object
+        csharp_dict = Dictionary[String, Object]()
+        for key, value in vals.items():
+            csharp_dict[str(key)] = value
+        return self._record.Write(csharp_dict)
     
     def read(self, fields=None):
         return self._record.Read(fields)
