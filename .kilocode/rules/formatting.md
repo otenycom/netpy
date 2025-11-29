@@ -1,0 +1,1 @@
+for this project we use csharpier. it auto formats the code on save. do not make updates to change that formatting, but follow it.

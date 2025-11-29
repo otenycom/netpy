@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../odoo/odoo19"
+		}
+	],
+	"settings": {
+		"editor.formatOnSave": true,
+		"[csharp]": {
+			"editor.defaultFormatter": "csharpier.csharpier-vscode",
+		},
+		"[xml]": {
+			"editor.defaultFormatter": "csharpier.csharpier-vscode"
+		},
+	}
+}

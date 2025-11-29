@@ -20,13 +20,13 @@ namespace Odoo.Core
         private readonly Dictionary<Type, Delegate> _recordFactories = new();
         private readonly ModelRegistry? _modelRegistry;
         private readonly PipelineRegistry _pipelineRegistry;
-        
+
         /// <summary>
         /// Identity Map: Caches record instances to ensure reference equality.
         /// Key is (ModelToken, RecordId), Value is the unified wrapper instance.
         /// </summary>
         private readonly Dictionary<(int ModelToken, int Id), IOdooRecord> _identityMap = new();
-        
+
         /// <summary>
         /// Protection tracking: Field → Set of protected record IDs.
         /// Protected records can have computed field setters write directly to cache
@@ -39,13 +39,13 @@ namespace Odoo.Core
         public IColumnarCache Columns { get; }
         public IPipelineBuilder Methods => _pipelineRegistry;
         public IdGenerator IdGenerator { get; }
-        
+
         /// <summary>
         /// Tracks dirty fields across all models for this environment.
         /// Used by Flush() to determine what needs to be written.
         /// </summary>
         public DirtyTracker DirtyTracker { get; }
-        
+
         /// <summary>
         /// Tracks computed fields that need recomputation.
         /// Used for the @api.depends pattern.
@@ -55,12 +55,20 @@ namespace Odoo.Core
         /// <summary>
         /// Fast access to compiled pipeline delegates.
         /// </summary>
-        public TDelegate GetPipeline<TDelegate>(string model, string method) where TDelegate : Delegate
+        public TDelegate GetPipeline<TDelegate>(string model, string method)
+            where TDelegate : Delegate
         {
             return _pipelineRegistry.GetPipeline<TDelegate>(model, method);
         }
 
-        public OdooEnvironment(int userId, IColumnarCache? cache = null, ModelRegistry? modelRegistry = null, PipelineRegistry? pipelineRegistry = null, DirtyTracker? dirtyTracker = null, ComputeTracker? computeTracker = null)
+        public OdooEnvironment(
+            int userId,
+            IColumnarCache? cache = null,
+            ModelRegistry? modelRegistry = null,
+            PipelineRegistry? pipelineRegistry = null,
+            DirtyTracker? dirtyTracker = null,
+            ComputeTracker? computeTracker = null
+        )
         {
             UserId = userId;
             Columns = cache ?? new ColumnarValueCache();
@@ -70,7 +78,7 @@ namespace Odoo.Core
             DirtyTracker = dirtyTracker ?? new DirtyTracker();
             ComputeTracker = computeTracker ?? new ComputeTracker(_modelRegistry);
         }
-        
+
         /// <summary>
         /// Get a record from the identity map, creating it if necessary.
         /// This ensures reference equality for the same (model, id) combination.
@@ -84,40 +92,42 @@ namespace Odoo.Core
         /// var partner2 = env.GetRecord&lt;IPartnerSaleExtension&gt;("res.partner", 1);
         /// Assert.True(ReferenceEquals(partner1, partner2)); // Same instance!
         /// </example>
-        public T GetRecord<T>(string modelName, int id) where T : class, IOdooRecord
+        public T GetRecord<T>(string modelName, int id)
+            where T : class, IOdooRecord
         {
             if (_modelRegistry == null)
                 throw new InvalidOperationException("Model registry is not initialized");
-            
+
             var schema = _modelRegistry.GetModel(modelName);
             if (schema == null)
                 throw new KeyNotFoundException($"Model '{modelName}' not found");
-            
+
             var key = (schema.Token.Token, id);
-            
+
             if (_identityMap.TryGetValue(key, out var existing))
             {
                 // Cache hit - return existing instance
                 return (T)existing;
             }
-            
+
             // Cache miss - create new instance using registered factory
             var factory = _modelRegistry.GetRecordFactory(modelName);
             var record = factory(this, id);
-            
+
             _identityMap[key] = record;
             return (T)record;
         }
-        
+
         /// <summary>
         /// Get a record by ID, inferring the model name from the interface's [OdooModel] attribute.
         /// </summary>
-        public T GetRecord<T>(int id) where T : class, IOdooRecord
+        public T GetRecord<T>(int id)
+            where T : class, IOdooRecord
         {
             var modelName = GetModelName<T>();
             return GetRecord<T>(modelName, id);
         }
-        
+
         /// <summary>
         /// Register a record in the identity map.
         /// Called when creating new records to ensure reference equality.
@@ -127,7 +137,7 @@ namespace Odoo.Core
             var key = (modelToken, id);
             _identityMap[key] = record;
         }
-        
+
         /// <summary>
         /// Check if a record exists in the identity map.
         /// </summary>
@@ -135,7 +145,7 @@ namespace Odoo.Core
         {
             return _identityMap.TryGetValue((modelToken, id), out record);
         }
-        
+
         /// <summary>
         /// Clear the identity map. Use with caution - invalidates all cached references.
         /// </summary>
@@ -143,7 +153,7 @@ namespace Odoo.Core
         {
             _identityMap.Clear();
         }
-        
+
         /// <summary>
         /// Get multiple records as a RecordSet with identity map support.
         /// </summary>
@@ -151,40 +161,44 @@ namespace Odoo.Core
         /// <param name="modelName">The Odoo model name.</param>
         /// <param name="ids">The record IDs.</param>
         /// <returns>A RecordSet of records.</returns>
-        public RecordSet<T> GetRecords<T>(string modelName, int[] ids) where T : class, IOdooRecord
+        public RecordSet<T> GetRecords<T>(string modelName, int[] ids)
+            where T : class, IOdooRecord
         {
             return new RecordSet<T>(
                 this,
                 modelName,
                 ids,
-                (env, id) => ((OdooEnvironment)env).GetRecord<T>(modelName, id));
+                (env, id) => ((OdooEnvironment)env).GetRecord<T>(modelName, id)
+            );
         }
-        
+
         /// <summary>
         /// Get multiple records as a RecordSet, inferring model name from interface.
         /// </summary>
-        public RecordSet<T> GetRecords<T>(int[] ids) where T : class, IOdooRecord
+        public RecordSet<T> GetRecords<T>(int[] ids)
+            where T : class, IOdooRecord
         {
             var modelName = GetModelName<T>();
             return GetRecords<T>(modelName, ids);
         }
-        
+
         /// <summary>
         /// Get a record by model token and ID.
         /// Used by RecordHandle.As&lt;T&gt;() for identity map lookups.
         /// </summary>
-        public T GetRecordByToken<T>(int modelToken, int id) where T : class, IOdooRecord
+        public T GetRecordByToken<T>(int modelToken, int id)
+            where T : class, IOdooRecord
         {
             if (_modelRegistry == null)
                 throw new InvalidOperationException("Model registry is not initialized");
-            
+
             var key = (modelToken, id);
-            
+
             if (_identityMap.TryGetValue(key, out var existing))
             {
                 return (T)existing;
             }
-            
+
             // Find the model name from token
             foreach (var schema in _modelRegistry.GetAllModels())
             {
@@ -196,7 +210,7 @@ namespace Odoo.Core
                     return (T)record;
                 }
             }
-            
+
             throw new KeyNotFoundException($"No model found with token {modelToken}");
         }
 
@@ -219,12 +233,14 @@ namespace Odoo.Core
             }
         }
 
-        public RecordSet<T> GetModel<T>() where T : IOdooRecord
+        public RecordSet<T> GetModel<T>()
+            where T : IOdooRecord
         {
             return CreateRecordSet<T>(Array.Empty<int>());
         }
 
-        public RecordSet<T> CreateRecordSet<T>(int[] ids) where T : IOdooRecord
+        public RecordSet<T> CreateRecordSet<T>(int[] ids)
+            where T : IOdooRecord
         {
             var factory = GetOrCreateFactory<T>();
             var modelName = GetModelName<T>();
@@ -241,7 +257,8 @@ namespace Odoo.Core
             _recordFactories[typeof(T)] = factory;
         }
 
-        private Func<IEnvironment, int, T> GetOrCreateFactory<T>() where T : IOdooRecord
+        private Func<IEnvironment, int, T> GetOrCreateFactory<T>()
+            where T : IOdooRecord
         {
             if (_recordFactories.TryGetValue(typeof(T), out var factory))
             {
@@ -267,16 +284,18 @@ namespace Odoo.Core
 
             // Default factory - this will be replaced by generated code
             throw new InvalidOperationException(
-                $"No factory registered for type {typeof(T).Name}. " +
-                "Ensure the source generator has run and generated the necessary code.");
+                $"No factory registered for type {typeof(T).Name}. "
+                    + "Ensure the source generator has run and generated the necessary code."
+            );
         }
 
-        private string GetModelName<T>() where T : IOdooRecord
+        private string GetModelName<T>()
+            where T : IOdooRecord
         {
             // Extract model name from OdooModel attribute
             var type = typeof(T);
             var attr = type.GetCustomAttributes(typeof(OdooModelAttribute), true);
-            
+
             if (attr.Length > 0 && attr[0] is OdooModelAttribute modelAttr)
             {
                 return modelAttr.ModelName;
@@ -296,7 +315,14 @@ namespace Odoo.Core
         /// </summary>
         public OdooEnvironment WithUser(int userId)
         {
-            return new OdooEnvironment(userId, Columns, _modelRegistry, _pipelineRegistry, DirtyTracker, ComputeTracker);
+            return new OdooEnvironment(
+                userId,
+                Columns,
+                _modelRegistry,
+                _pipelineRegistry,
+                DirtyTracker,
+                ComputeTracker
+            );
         }
 
         /// <summary>
@@ -304,11 +330,16 @@ namespace Odoo.Core
         /// </summary>
         public OdooEnvironment WithNewCache()
         {
-            return new OdooEnvironment(UserId, new ColumnarValueCache(), _modelRegistry, _pipelineRegistry);
+            return new OdooEnvironment(
+                UserId,
+                new ColumnarValueCache(),
+                _modelRegistry,
+                _pipelineRegistry
+            );
         }
-        
+
         // --- Flush and Recompute Operations ---
-        
+
         /// <summary>
         /// Flush all pending writes to the database.
         /// This method:
@@ -324,19 +355,19 @@ namespace Odoo.Core
         {
             // Step 1: Recompute all pending computed fields first
             RecomputePending();
-            
+
             // Step 2: Get all dirty models
             var dirtyModels = DirtyTracker.GetDirtyModels();
-            
+
             foreach (var modelToken in dirtyModels)
             {
                 FlushModel(new ModelHandle(modelToken));
             }
-            
+
             // Step 3: Clear dirty tracking
             DirtyTracker.ClearAll();
         }
-        
+
         /// <summary>
         /// Flush a specific model's dirty records to the database.
         /// </summary>
@@ -344,32 +375,34 @@ namespace Odoo.Core
         {
             if (_modelRegistry == null)
                 return;
-                
-            var schema = _modelRegistry.GetAllModels()
+
+            var schema = _modelRegistry
+                .GetAllModels()
                 .FirstOrDefault(s => s.Token.Token == model.Token);
-                
+
             if (schema == null)
                 return;
-            
+
             // Get all dirty records for this model
             var dirtyRecordIds = DirtyTracker.GetDirtyRecordIds(model).ToArray();
-            
+
             if (dirtyRecordIds.Length == 0)
                 return;
-            
+
             // Build values dictionary for each record
             // In the future, this will be optimized to batch by field values
             foreach (var recordId in dirtyRecordIds)
             {
                 var dirtyFields = DirtyTracker.GetDirtyFields(model, recordId);
                 var values = new Dictionary<string, object?>();
-                
+
                 foreach (var fieldToken in dirtyFields)
                 {
                     // Find field name from token
-                    var fieldSchema = schema.Fields.Values
-                        .FirstOrDefault(f => f.Token.Token == fieldToken.Token);
-                        
+                    var fieldSchema = schema.Fields.Values.FirstOrDefault(f =>
+                        f.Token.Token == fieldToken.Token
+                    );
+
                     if (fieldSchema != null && !fieldSchema.IsComputed)
                     {
                         // Get current value from cache (using object boxing for now)
@@ -377,13 +410,13 @@ namespace Odoo.Core
                         // TODO: Implement typed value extraction
                     }
                 }
-                
+
                 // TODO: Call write pipeline when implemented
                 // var writePipeline = GetPipeline<WriteDelegate>(schema.ModelName, "write");
                 // writePipeline(new[] { recordId }, values);
             }
         }
-        
+
         /// <summary>
         /// Recompute all pending computed fields.
         /// Called automatically by Flush() before writing to database.
@@ -392,35 +425,41 @@ namespace Odoo.Core
         {
             if (_modelRegistry == null)
                 return;
-                
+
             while (ComputeTracker.HasPendingRecompute)
             {
                 var pending = ComputeTracker.GetAllPendingRecompute().ToList();
-                
+
                 foreach (var (modelToken, recordId, fieldToken) in pending)
                 {
-                    var schema = _modelRegistry.GetAllModels()
+                    var schema = _modelRegistry
+                        .GetAllModels()
                         .FirstOrDefault(s => s.Token.Token == modelToken);
-                        
+
                     if (schema == null)
                         continue;
-                    
-                    var fieldSchema = schema.Fields.Values
-                        .FirstOrDefault(f => f.Token.Token == fieldToken);
-                        
+
+                    var fieldSchema = schema.Fields.Values.FirstOrDefault(f =>
+                        f.Token.Token == fieldToken
+                    );
+
                     if (fieldSchema == null || !fieldSchema.IsComputed)
                         continue;
-                    
+
                     // TODO: Call the compute method when pipelines are implemented
                     // var computePipeline = GetPipeline<ComputeDelegate>(schema.ModelName, fieldSchema.ComputeMethodName);
                     // computePipeline(new[] { recordId });
-                    
+
                     // Clear the recompute flag
-                    ComputeTracker.ClearRecompute(new ModelHandle(modelToken), recordId, new FieldHandle(fieldToken));
+                    ComputeTracker.ClearRecompute(
+                        new ModelHandle(modelToken),
+                        recordId,
+                        new FieldHandle(fieldToken)
+                    );
                 }
             }
         }
-        
+
         /// <summary>
         /// Mark a field as modified and trigger recomputation of dependent fields.
         /// Called by property setters for stored fields.
@@ -433,7 +472,7 @@ namespace Odoo.Core
             DirtyTracker.MarkDirty(model, recordId, field);
             ComputeTracker.Modified(model, recordId, field);
         }
-        
+
         /// <summary>
         /// Mark multiple fields as modified on a record.
         /// </summary>
@@ -445,9 +484,9 @@ namespace Odoo.Core
             }
             ComputeTracker.Modified(model, recordId, fields);
         }
-        
+
         // --- Computed Field Helpers ---
-        
+
         /// <summary>
         /// Set a computed field value directly to the cache without triggering the Write pipeline.
         /// This method is used by compute methods to store their results.
@@ -468,13 +507,13 @@ namespace Odoo.Core
         {
             // Direct cache write - bypasses Write pipeline
             Columns.SetValue(model, recordId, field, value);
-            
+
             // Clear the recompute flag since we just computed it
             ComputeTracker.ClearRecompute(model, recordId, field);
         }
-        
+
         // --- Protection Mechanism for Computed Fields ---
-        
+
         /// <summary>
         /// Check if a record is currently protected for a specific field.
         /// During protection, setters bypass the Write pipeline and write directly to cache.
@@ -490,7 +529,7 @@ namespace Odoo.Core
         {
             return _protected.TryGetValue(field, out var ids) && ids.Contains(recordId);
         }
-        
+
         /// <summary>
         /// Protect records for specific fields during computation.
         /// Returns an IDisposable scope that removes protection on dispose.
@@ -519,7 +558,7 @@ namespace Odoo.Core
         {
             var fieldList = fields.ToList();
             var idSet = recordIds.ToHashSet();
-            
+
             foreach (var field in fieldList)
             {
                 if (!_protected.TryGetValue(field, out var ids))
@@ -529,10 +568,10 @@ namespace Odoo.Core
                 }
                 ids.UnionWith(idSet);
             }
-            
+
             return new ProtectionScope(this, fieldList, idSet);
         }
-        
+
         /// <summary>
         /// Remove protection for specific fields and record IDs.
         /// Called by ProtectionScope.Dispose().
@@ -547,7 +586,7 @@ namespace Odoo.Core
                     {
                         ids.Remove(id);
                     }
-                    
+
                     // Clean up empty sets to prevent memory growth
                     if (ids.Count == 0)
                     {
@@ -556,7 +595,7 @@ namespace Odoo.Core
                 }
             }
         }
-        
+
         /// <summary>
         /// Disposable scope that removes field protection when disposed.
         /// Created by <see cref="Protecting"/> method.
@@ -567,14 +606,18 @@ namespace Odoo.Core
             private readonly List<FieldHandle> _fields;
             private readonly HashSet<int> _recordIds;
             private bool _disposed;
-            
-            public ProtectionScope(OdooEnvironment env, List<FieldHandle> fields, HashSet<int> recordIds)
+
+            public ProtectionScope(
+                OdooEnvironment env,
+                List<FieldHandle> fields,
+                HashSet<int> recordIds
+            )
             {
                 _env = env;
                 _fields = fields;
                 _recordIds = recordIds;
             }
-            
+
             public void Dispose()
             {
                 if (!_disposed)
@@ -585,7 +628,7 @@ namespace Odoo.Core
             }
         }
     }
-    
+
     /// <summary>
     /// Extension methods for IEnvironment to support computed field operations.
     /// </summary>
@@ -607,7 +650,8 @@ namespace Odoo.Core
             ModelHandle model,
             int recordId,
             FieldHandle field,
-            T value)
+            T value
+        )
         {
             if (env is OdooEnvironment odooEnv)
             {
