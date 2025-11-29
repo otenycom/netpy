@@ -1,12 +1,7 @@
 using System;
-using System.IO;
-using System.Linq;
-using System.Reflection;
 // Import typed access to Odoo.Base models (since we reference it directly)
 using Odoo.Base.Models;
 using Odoo.Core;
-using Odoo.Core.Modules;
-using Odoo.Core.Pipeline;
 using Odoo.Generated.OdooBase.Logic; // Import generated logic extensions
 // Import unified wrappers from Demo (sees cumulative interfaces)
 using Odoo.Generated.OdooDemo;
@@ -20,118 +15,56 @@ namespace Odoo.Examples
         {
             Console.WriteLine("=== Modularity & Pipeline Demo ===\n");
 
-            // 1. Setup paths - navigate up to find the addons folder at the workspace root
-            // In production, this would be configured via appsettings.json or environment variable
-            string currentDir = Directory.GetCurrentDirectory();
-            string addonsPath = Path.Combine(currentDir, "addons");
+            // ═══════════════════════════════════════════════════════════════════
+            // 1. Create Environment using OdooEnvironmentBuilder
+            // ═══════════════════════════════════════════════════════════════════
+            Console.WriteLine("1. Creating OdooEnvironment using OdooEnvironmentBuilder...");
+            Console.WriteLine("   The builder automatically:");
+            Console.WriteLine("   - Discovers all assemblies referencing Odoo.Core");
+            Console.WriteLine("   - Finds IModuleRegistrar implementations");
+            Console.WriteLine("   - Scans for [OdooModel] interfaces");
+            Console.WriteLine("   - Registers pipelines in dependency order");
+            Console.WriteLine("   - Compiles delegate chains\n");
 
-            // If running from samples/Odoo.Demo/bin/Debug/..., navigate up to find addons
-            if (!Directory.Exists(addonsPath))
+            var env = new OdooEnvironmentBuilder().WithUserId(1).Build();
+
+            Console.WriteLine("   ✓ Environment created successfully!");
+
+            // 2. Show discovered modules (via registry)
+            var modelRegistry =
+                env.GetType()
+                    .GetField(
+                        "_modelRegistry",
+                        System.Reflection.BindingFlags.NonPublic
+                            | System.Reflection.BindingFlags.Instance
+                    )
+                    ?.GetValue(env) as Odoo.Core.Modules.ModelRegistry;
+
+            if (modelRegistry != null)
             {
-                // Try to find addons folder by going up directory levels
-                var dir = new DirectoryInfo(currentDir);
-                while (dir != null && !Directory.Exists(Path.Combine(dir.FullName, "addons")))
+                Console.WriteLine("\n2. Discovered Models:");
+                foreach (var model in modelRegistry.GetAllModels())
                 {
-                    dir = dir.Parent;
-                }
-                if (dir != null)
-                {
-                    addonsPath = Path.Combine(dir.FullName, "addons");
-                }
-            }
-
-            Console.WriteLine($"1. Scanning addons in: {addonsPath}");
-
-            // 2. Initialize ModuleLoader
-            var loader = new ModuleLoader(addonsPath);
-            var loadedModules = loader.LoadModules();
-
-            Console.WriteLine($"\n2. Loaded {loadedModules.Count} modules:");
-            foreach (var mod in loadedModules)
-            {
-                Console.WriteLine($"   - {mod.Manifest.Name} v{mod.Manifest.Version}");
-            }
-
-            // 3. Build Registries
-            Console.WriteLine("\n3. Building Registries...");
-            var registryBuilder = new RegistryBuilder();
-            var pipelineRegistry = new PipelineRegistry();
-
-            foreach (var mod in loadedModules)
-            {
-                if (mod.Assembly != null)
-                {
-                    // Scan for models
-                    registryBuilder.ScanAssembly(mod.Assembly);
-                }
-            }
-
-            var modelRegistry = registryBuilder.Build();
-
-            // Register pipelines and factories from each module
-            foreach (var mod in loadedModules)
-            {
-                if (mod.Assembly != null)
-                {
-                    // Scan for pipeline registrars (generated code)
-                    var registrars = mod
-                        .Assembly.GetTypes()
-                        .Where(t =>
-                            typeof(IModuleRegistrar).IsAssignableFrom(t)
-                            && !t.IsInterface
-                            && !t.IsAbstract
-                        );
-
-                    foreach (var registrarType in registrars)
+                    Console.WriteLine($"   - {model.ModelName}");
+                    Console.WriteLine($"     Token: {model.Token}");
+                    Console.WriteLine(
+                        $"     Contributing Interfaces: {model.ContributingInterfaces.Count}"
+                    );
+                    foreach (var iface in model.ContributingInterfaces)
                     {
-                        var registrar = (IModuleRegistrar)Activator.CreateInstance(registrarType)!;
-                        registrar.RegisterPipelines(pipelineRegistry);
-                        registrar.RegisterFactories(modelRegistry);
-                        Console.WriteLine(
-                            $"   - Registered pipelines & factories from {mod.Manifest.Name}"
-                        );
+                        Console.WriteLine($"       - {iface.FullName}");
                     }
                 }
             }
 
-            pipelineRegistry.CompileAll();
-
-            // 4. Create Environment
-            var env = new OdooEnvironment(1, null, modelRegistry, pipelineRegistry);
-            Console.WriteLine("\n4. Environment created with merged registries");
-
-            // 5. Show model schema information
-            Console.WriteLine("\n5. Merged Model Schema:");
-            foreach (var model in modelRegistry.GetAllModels())
-            {
-                Console.WriteLine($"   Model: {model.ModelName}");
-                Console.WriteLine($"     Token: {model.Token}");
-                Console.WriteLine(
-                    $"     Contributing Interfaces: {model.ContributingInterfaces.Count}"
-                );
-                foreach (var iface in model.ContributingInterfaces)
-                {
-                    Console.WriteLine($"       - {iface.FullName}");
-                }
-                Console.WriteLine($"     Fields: {model.Fields.Count}");
-                foreach (var field in model.Fields.Values.OrderBy(f => f.FieldName))
-                {
-                    Console.WriteLine(
-                        $"       - {field.FieldName}: {field.FieldType.Name} [Token: Field({field.Token.Token})] (from {field.ContributingInterface.Name})"
-                    );
-                }
-            }
-
             // ═══════════════════════════════════════════════════════════════════
-            // 6. TYPED vs DYNAMIC API Comparison
+            // 3. TYPED vs DYNAMIC API Comparison
             // ═══════════════════════════════════════════════════════════════════
-            Console.WriteLine("\n6. Record Creation API Comparison:");
+            Console.WriteLine("\n3. Record Creation API Comparison:");
             Console.WriteLine("   ─────────────────────────────────────────────────────────────");
 
             // APPROACH A: Dynamic API (Pythonic style)
-            Console.WriteLine(
-                "\n   A) Dynamic/Pythonic API (works with dynamically loaded modules):"
-            );
+            Console.WriteLine("\n   A) Dynamic/Pythonic API (works without compile-time types):");
             Console.WriteLine("      var dynamicPartner = env[\"res.partner\"].Create(new {");
             Console.WriteLine("          name = \"Dynamic Partner\",");
             Console.WriteLine("          email = \"dynamic@example.com\"");
@@ -141,38 +74,30 @@ namespace Odoo.Examples
                 .Create(new { name = "Dynamic Partner", email = "dynamic@example.com" });
             Console.WriteLine($"      → Created ID: {dynamicPartner.Id}");
 
-            // APPROACH B: Strongly-typed API with unified wrappers (read access)
-            // Note: When dynamically loading modules, use dynamic Create API,
-            // then typed GetRecord<T> API for reading with full type safety.
+            // APPROACH B: Strongly-typed API with unified wrappers (recommended)
             Console.WriteLine(
-                "\n   B) Strongly-typed Read API (compile-time safety, IntelliSense):"
+                "\n   B) Strongly-typed API with OdooEnvironmentBuilder (compile-time safety):"
             );
-            Console.WriteLine("      // First create via dynamic API:");
-            Console.WriteLine("      var typedRecord = env[\"res.partner\"].Create(new { ... });");
-            Console.WriteLine("      // Then access with typed interface:");
             Console.WriteLine(
-                "      var typedPartner = env.GetRecord<IPartnerBase>(\"res.partner\", typedRecord.Id);"
+                "      var typedPartner = env.Create(new ResPartnerValues { Name = \"...\", ... });"
             );
 
-            // Create via dynamic API, then access typed
-            var typedRecord = env["res.partner"]
-                .Create(
-                    new
-                    {
-                        name = "Typed Partner",
-                        email = "typed@example.com",
-                        is_company = true,
-                    }
-                );
-            var typedPartner = env.GetRecord<IPartnerBase>("res.partner", typedRecord.Id);
+            var typedPartner = env.Create(
+                new ResPartnerValues
+                {
+                    Name = "Typed Partner",
+                    Email = "typed@example.com",
+                    IsCompany = true,
+                }
+            );
             Console.WriteLine($"      → Created ID: {typedPartner.Id}");
             Console.WriteLine($"      → Name: {typedPartner.Name}");
             Console.WriteLine($"      → IsCompany: {typedPartner.IsCompany}");
 
             // ═══════════════════════════════════════════════════════════════════
-            // 7. Typed Record Access & Identity Map
+            // 4. Typed Record Access & Identity Map
             // ═══════════════════════════════════════════════════════════════════
-            Console.WriteLine("\n7. Typed Record Access & Identity Map:");
+            Console.WriteLine("\n4. Typed Record Access & Identity Map:");
             Console.WriteLine("   ─────────────────────────────────────────────────────────────");
 
             Console.WriteLine("\n   // Single record with GetRecord<T>:");
@@ -213,23 +138,25 @@ namespace Odoo.Examples
             Console.WriteLine("   Both interfaces return the SAME unified wrapper instance!");
 
             // ═══════════════════════════════════════════════════════════════════
-            // 8. Typed RecordSet Operations
+            // 5. Typed RecordSet Operations
             // ═══════════════════════════════════════════════════════════════════
-            Console.WriteLine("\n8. Typed RecordSet Operations:");
+            Console.WriteLine("\n5. Typed RecordSet Operations:");
             Console.WriteLine("   ─────────────────────────────────────────────────────────────");
 
-            // Create a few more partners via dynamic API (avoids cross-assembly type issues)
-            var partner2Record = env["res.partner"]
-                .Create(new { name = "Contact A", is_company = false });
-            var partner3Record = env["res.partner"]
-                .Create(new { name = "Company B", is_company = true });
+            // Create more partners using typed API
+            var partner2 = env.Create(
+                new ResPartnerValues { Name = "Contact A", IsCompany = false }
+            );
+            var partner3 = env.Create(
+                new ResPartnerValues { Name = "Company B", IsCompany = true }
+            );
 
             var partners = env.GetRecords<IPartnerBase>(
                 "res.partner",
-                new[] { typedPartner.Id, partner2Record.Id, partner3Record.Id }
+                new[] { typedPartner.Id, partner2.Id, partner3.Id }
             );
             Console.WriteLine(
-                $"\n   var partners = env.GetRecords<IPartnerBase>(\"res.partner\", new[] {{ {typedPartner.Id}, {partner2Record.Id}, {partner3Record.Id} }});"
+                $"\n   var partners = env.GetRecords<IPartnerBase>(\"res.partner\", new[] {{ {typedPartner.Id}, {partner2.Id}, {partner3.Id} }});"
             );
             Console.WriteLine($"   partners.Count → {partners.Count}");
 
@@ -243,9 +170,9 @@ namespace Odoo.Examples
             }
 
             // ═══════════════════════════════════════════════════════════════════
-            // 9. Execute Pipeline Demo with typed RecordSet
+            // 6. Execute Pipeline Demo with typed RecordSet
             // ═══════════════════════════════════════════════════════════════════
-            Console.WriteLine("\n9. Pipeline Execution:");
+            Console.WriteLine("\n6. Pipeline Execution:");
             Console.WriteLine("   ─────────────────────────────────────────────────────────────");
             Console.WriteLine("   Expected chain: Sale logic -> Base logic");
 
@@ -281,23 +208,30 @@ namespace Odoo.Examples
             // Summary
             // ═══════════════════════════════════════════════════════════════════
             Console.WriteLine("\n╔══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║  UNIFIED WRAPPER API SUMMARY                                 ║");
+            Console.WriteLine("║  STATIC COMPILATION API SUMMARY                              ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
-            Console.WriteLine("  env.Create(new {Model}Values {{ ... }}) - Typed creation");
-            Console.WriteLine("  env.GetRecord<T>(model, id)            - Typed single record");
-            Console.WriteLine("  env.GetRecords<T>(model, ids)          - Typed RecordSet");
-            Console.WriteLine("  record.{Property}                      - Typed property access");
-            Console.WriteLine("  recordset.Where(predicate)             - Type-safe filtering");
+            Console.WriteLine("  // Environment Setup (auto-discovers all addons)");
+            Console.WriteLine("  var env = new OdooEnvironmentBuilder()");
+            Console.WriteLine("      .WithUserId(1)");
+            Console.WriteLine("      .Build();");
             Console.WriteLine();
+            Console.WriteLine("  // Typed creation with RecordValueField tracking");
+            Console.WriteLine("  env.Create(new ResPartnerValues { Name = \"...\", ... })");
+            Console.WriteLine();
+            Console.WriteLine("  // Typed record access");
+            Console.WriteLine("  env.GetRecord<T>(model, id)");
+            Console.WriteLine("  env.GetRecords<T>(model, ids)");
+            Console.WriteLine();
+            Console.WriteLine("  // Property access invokes pipelines");
+            Console.WriteLine("  record.Property = value;  // Invokes Write pipeline");
+            Console.WriteLine();
+            Console.WriteLine("  ✓ Static Compilation: All types known at compile time");
             Console.WriteLine("  ✓ Identity Map: Same ID always returns same instance");
             Console.WriteLine("  ✓ Unified Wrapper: One class implements ALL interfaces");
             Console.WriteLine(
-                "  ✓ Full Polymorphism: IPartnerBase and IPartnerSaleExtension share instance"
+                "  ✓ Source Generators: Diamond inheritance resolved at compile time"
             );
-            Console.WriteLine();
-            Console.WriteLine("  Dynamic API (env[\"model\"].Create(...)) is still available");
-            Console.WriteLine("  for interoperability with dynamically loaded modules.");
             Console.WriteLine();
             Console.WriteLine("=== Demo Complete ===");
         }
