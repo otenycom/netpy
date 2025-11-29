@@ -6,9 +6,12 @@ NetPy implements an Odoo-style modular addon system with:
 - **Module discovery**: Scan `addons/` for `manifest.json` files
 - **Dependency resolution**: Topological sort by `depends` field
 - **Model composition**: Multiple interfaces merged into unified schema
+- **Diamond inheritance**: Multiple addons can independently extend the same base model
 - **Method pipelines**: Compiled delegate chains with `super` pattern
 - **Cross-assembly compatibility**: Non-generic `IRecordValues` base + generated Values interfaces
 - **Type-safe overrides**: Use generated Values interfaces (e.g., `IPartnerSaleExtensionValues`) directly in method signatures
+- **Protection-aware computed fields**: Computed field getters check protection status to prevent infinite recursion
+- **Project-specific unified interfaces**: Each project gets its own unified interface (e.g., `IResPartner`) with all visible extensions
 
 ## Directory Structure
 
@@ -20,11 +23,17 @@ addons/
 │   ├── Models/Partner.cs       # IPartnerBase interface
 │   └── Logic/PartnerLogic.cs   # Base implementations
 │
-└── sale/
-    ├── manifest.json           # {"name": "sale", "depends": ["base"]}
-    ├── Odoo.Sale.csproj
-    ├── Models/PartnerExtension.cs  # IPartnerSaleExtension interface
-    └── Logic/PartnerLogic.cs       # Overrides with super
+├── sale/
+│   ├── manifest.json           # {"name": "sale", "depends": ["base"]}
+│   ├── Odoo.Sale.csproj
+│   ├── Models/PartnerExtension.cs  # IPartnerSaleExtension interface
+│   └── Logic/PartnerLogic.cs       # Overrides with super
+│
+└── purchase/
+    ├── manifest.json           # {"name": "purchase", "depends": ["base"]}
+    ├── Odoo.Purchase.csproj
+    ├── Models/PartnerExtension.cs  # IPartnerPurchaseExtension interface
+    └── Logic/PartnerLogic.cs       # Write and ComputeDisplayName overrides
 ```
 
 ## Model Interfaces
@@ -49,10 +58,56 @@ public interface IPartnerSaleExtension : IOdooRecord
 }
 ```
 
+**Purchase module** (`addons/purchase/Models/PartnerExtension.cs`):
+```csharp
+[OdooModel("res.partner")]
+public interface IPartnerPurchaseExtension : IOdooRecord
+{
+    bool IsSupplier { get; set; }
+}
+```
+
 **Generated unified interface** (Source Generator):
 ```csharp
-public interface IPartner : IPartnerBase, IPartnerSaleExtension, IOdooRecord { }
+// Generated in each project that references multiple addons
+// The interface is project-specific and includes ALL visible extensions
+[OdooModel("res.partner")]
+public interface IResPartner : IPartnerBase, IPartnerSaleExtension, IPartnerPurchaseExtension { }
 ```
+
+## Diamond Inheritance Pattern
+
+NetPy supports Odoo's diamond inheritance pattern where multiple modules independently extend the same base model:
+
+```
+           ┌──────────────┐
+           │ IPartnerBase │  (base addon)
+           │  - Name      │
+           │  - Email     │
+           │  - IsCompany │
+           └──────┬───────┘
+                  │
+       ┌──────────┴──────────┐
+       ▼                     ▼
+┌──────────────────┐  ┌─────────────────────┐
+│ IPartnerSale     │  │ IPartnerPurchase    │
+│ Extension        │  │ Extension           │
+│  - IsCustomer    │  │  - IsSupplier       │
+│  - CreditLimit   │  │                     │
+└────────┬─────────┘  └──────────┬──────────┘
+         │                       │
+         └───────────┬───────────┘
+                     ▼
+           ┌─────────────────┐
+           │  IResPartner    │  (unified interface)
+           │  (all fields)   │
+           └─────────────────┘
+```
+
+Each addon can override computed fields and pipelines:
+- **Base**: `_compute_display_name` → "Name" or "Name | Company"
+- **Purchase**: Overrides to append "| Supplier" when IsSupplier is true
+- **Result**: "Big Corp | Company | Supplier" (all overrides applied via super chain)
 
 ## Pipeline Architecture
 
@@ -129,6 +184,29 @@ public static void Write_SaleOverride(
 }
 ```
 
+**Computed field override with super pattern** (Purchase module example):
+```csharp
+[OdooLogic("res.partner", "_compute_display_name")]
+public static void ComputeDisplayName(
+    RecordSet<IPartnerPurchaseExtension> self,
+    Action<RecordSet<IPartnerPurchaseExtension>> super)
+{
+    // Call base computation first
+    super(self);
+    
+    // Then modify the result for suppliers
+    foreach (var partner in self)
+    {
+        if (partner.IsSupplier)
+        {
+            // Safe to read DisplayName - field is protected during compute
+            var currentDisplayName = partner.DisplayName ?? partner.Name ?? "";
+            partner.DisplayName = currentDisplayName + " | Supplier";
+        }
+    }
+}
+```
+
 The source generator automatically wraps the override with a cast:
 ```csharp
 // Generated registration in ModuleRegistrar.g.cs:
@@ -189,17 +267,55 @@ if (vals.Email.IsSet && !vals.Email.Value?.Contains("@"))
 super(handle, vals);
 ```
 
+## Protection-Aware Computed Field Getters
+
+Computed field getters implement Odoo's protection mechanism to prevent infinite recursion:
+
+```csharp
+// Generated getter for DisplayName (computed field)
+public string DisplayName
+{
+    get
+    {
+        var fieldToken = ModelSchema.ResPartner.DisplayName;
+        
+        // PROTECTION CHECK: If field is protected (we're inside a compute method),
+        // return cached value directly without checking NeedsRecompute.
+        // This prevents infinite recursion when overrides read the field after calling super.
+        if (Env is OdooEnvironment protectedEnv &&
+            protectedEnv.IsProtected(fieldToken, Id))
+        {
+            return Env.Columns.GetValue<string>(modelToken, Id, fieldToken);
+        }
+        
+        // Normal path: check if recomputation needed
+        if (needsCompute)
+        {
+            ResPartnerPipelines.Compute_DisplayName(recordSet);
+        }
+        return Env.Columns.GetValue<string>(modelToken, Id, fieldToken);
+    }
+}
+```
+
+The protection mechanism (`env.Protecting()`) wraps compute method execution:
+- Records are "protected" during computation
+- Protected getters return cached values directly (no recompute check)
+- Overrides can safely read the field after calling `super()`
+
 ## Generated Components
 
 The Source Generator produces:
 
 | File | Purpose |
 |------|---------|
-| `IPartner.g.cs` | Unified model interface |
+| `IResPartner.g.cs` | Unified model interface with `[OdooModel]` attribute |
+| `ResPartner.g.cs` | Unified wrapper class implementing all interfaces |
 | `ResPartnerValues.g.cs` | Multi-interface Values class |
 | `ResPartnerValuesHandler.g.cs` | `IRecordValuesHandler` for field writes |
-| `ResPartnerPipelines.g.cs` | Pipeline compilation (write/create) |
+| `ResPartnerPipelines.g.cs` | Pipeline compilation (write/create/compute) |
 | `ModuleRegistrar.g.cs` | `IModuleRegistrar` impl for registration |
+| `OdooEnvironmentExtensions.g.cs` | `env.Create()` extension returning unified interface |
 
 ## Runtime Flow
 
@@ -257,6 +373,12 @@ At source generation time, generated types (like `IPartnerSaleExtensionValues`) 
 2. TypeKind is `Interface` OR `Error` (for generated types)
 3. Type name ends with "Values" and is not "IRecordValues"
 4. Type is not generic (distinguishes from `IRecordValues<T>`)
+
+**Why is the unified interface (`IResPartner`) project-specific?**
+Each project that references multiple addons gets its own unified interface containing ALL visible extensions:
+- Test project references Base + Sale + Purchase → `IResPartner : IPartnerBase, IPartnerSaleExtension, IPartnerPurchaseExtension`
+- Sale addon only references Base → `IResPartner : IPartnerBase, IPartnerSaleExtension`
+- This enables `env.Create()` to return the most specific interface for that project
 
 ## Performance
 

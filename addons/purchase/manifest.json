@@ -1,0 +1,9 @@
+{
+    "name": "purchase",
+    "version": "1.0.0",
+    "depends": [
+        "base"
+    ],
+    "description": "Purchase management module",
+    "assemblyPath": "bin/Debug/net10.0/Odoo.Purchase.dll"
+}

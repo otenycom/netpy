@@ -10,6 +10,7 @@
   <Folder Name="/addons/">
     <Project Path="addons/base/Odoo.Base.csproj" />
     <Project Path="addons/sale/Odoo.Sale.csproj" />
+    <Project Path="addons/purchase/Odoo.Purchase.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Odoo.Tests/Odoo.Tests.csproj" />
