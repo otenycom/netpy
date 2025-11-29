@@ -437,5 +437,67 @@ namespace Odoo.Core
             }
             ComputeTracker.Modified(model, recordId, fields);
         }
+        
+        // --- Computed Field Helpers ---
+        
+        /// <summary>
+        /// Set a computed field value directly to the cache without triggering the Write pipeline.
+        /// This method is used by compute methods to store their results.
+        /// <para>
+        /// Unlike normal property setters (which go through the Write pipeline), this method:
+        /// - Writes directly to the cache
+        /// - Does NOT mark the field as dirty (computed fields are recomputed, not written to DB directly from cache)
+        /// - Does NOT trigger Modified() (to avoid cascading recomputation)
+        /// - Clears the recompute flag for this field
+        /// </para>
+        /// </summary>
+        /// <typeparam name="T">The type of the field value</typeparam>
+        /// <param name="model">The model handle</param>
+        /// <param name="recordId">The record ID</param>
+        /// <param name="field">The field handle</param>
+        /// <param name="value">The computed value to set</param>
+        public void SetComputedValue<T>(ModelHandle model, int recordId, FieldHandle field, T value)
+        {
+            // Direct cache write - bypasses Write pipeline
+            Columns.SetValue(model, recordId, field, value);
+            
+            // Clear the recompute flag since we just computed it
+            ComputeTracker.ClearRecompute(model, recordId, field);
+        }
+    }
+    
+    /// <summary>
+    /// Extension methods for IEnvironment to support computed field operations.
+    /// </summary>
+    public static class EnvironmentComputeExtensions
+    {
+        /// <summary>
+        /// Set a computed field value directly to the cache without triggering the Write pipeline.
+        /// Extension method version for use in compute methods.
+        /// </summary>
+        /// <typeparam name="T">The type of the field value</typeparam>
+        /// <param name="env">The environment</param>
+        /// <param name="model">The model handle</param>
+        /// <param name="recordId">The record ID</param>
+        /// <param name="field">The field handle</param>
+        /// <param name="value">The computed value to set</param>
+        /// <exception cref="InvalidOperationException">If env is not an OdooEnvironment</exception>
+        public static void SetComputedValue<T>(
+            this IEnvironment env,
+            ModelHandle model,
+            int recordId,
+            FieldHandle field,
+            T value)
+        {
+            if (env is OdooEnvironment odooEnv)
+            {
+                odooEnv.SetComputedValue(model, recordId, field, value);
+            }
+            else
+            {
+                // Fallback: just write to cache (won't clear recompute flag)
+                env.Columns.SetValue(model, recordId, field, value);
+            }
+        }
     }
 }

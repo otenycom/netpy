@@ -396,21 +396,25 @@ namespace Odoo.SourceGenerator
                 // Check if property is computed
                 var isComputed = prop.GetAttributes().Any(a => a.AttributeClass?.Name == "OdooComputeAttribute");
                 
+                // Get the primary interface for RecordSet type parameter
+                var primaryInterface = model.Interfaces.FirstOrDefault()?.ToDisplayString() ?? "IOdooRecord";
+                
                 sb.AppendLine($"        public {propertyType} {prop.Name}");
                 sb.AppendLine("        {");
                 
                 // GETTER: Direct cache read (like Odoo Field.__get__)
                 if (isComputed)
                 {
-                    // Computed field - trigger computation if needed
+                    // Computed field - trigger computation if needed (batch pattern)
                     sb.AppendLine("            get");
                     sb.AppendLine("            {");
                     sb.AppendLine($"                // Computed field - check if recomputation needed");
                     sb.AppendLine($"                if (Env is OdooEnvironment odooEnv && ");
                     sb.AppendLine($"                    odooEnv.ComputeTracker.NeedsRecompute(ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name}))");
                     sb.AppendLine("                {");
-                    sb.AppendLine($"                    // Trigger recomputation");
-                    sb.AppendLine($"                    {className}Pipelines.Compute_{prop.Name}(_handle);");
+                    sb.AppendLine($"                    // Trigger recomputation using batch RecordSet pattern (like Odoo)");
+                    sb.AppendLine($"                    var recordSet = odooEnv.CreateRecordSet<{primaryInterface}>(new[] {{ Id }});");
+                    sb.AppendLine($"                    {className}Pipelines.Compute_{prop.Name}(recordSet);");
                     sb.AppendLine("                }");
                     sb.AppendLine($"                return Env.Columns.GetValue<{propertyType}>(");
                     sb.AppendLine($"                    ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name});");
@@ -597,14 +601,17 @@ namespace Odoo.SourceGenerator
             sb.AppendLine();
 
             // ========================================
-            // COMPUTE METHODS - For computed fields
+            // COMPUTE METHODS - For computed fields (Batch RecordSet pattern like Odoo)
             // ========================================
             var computedProps = model.Properties.Where(p =>
                 p.GetAttributes().Any(a => a.AttributeClass?.Name == "OdooComputeAttribute")).ToList();
             
+            // Get the primary interface for RecordSet type parameter
+            var primaryInterface = model.Interfaces.FirstOrDefault()?.ToDisplayString() ?? "IOdooRecord";
+            
             if (computedProps.Any())
             {
-                sb.AppendLine("        #region Computed Field Methods");
+                sb.AppendLine("        #region Computed Field Methods (Batch RecordSet Pattern)");
                 sb.AppendLine();
                 
                 foreach (var prop in computedProps)
@@ -618,21 +625,24 @@ namespace Odoo.SourceGenerator
                         : $"_compute_{prop.Name.ToLower()}";
                     
                     sb.AppendLine($"        /// <summary>");
-                    sb.AppendLine($"        /// Trigger computation for {prop.Name} field.");
-                    sb.AppendLine($"        /// Override this to provide compute logic.");
+                    sb.AppendLine($"        /// Trigger computation for {prop.Name} field using batch RecordSet pattern.");
+                    sb.AppendLine($"        /// This mirrors Odoo's pattern: for record in self: record.field = computed_value");
                     sb.AppendLine($"        /// </summary>");
-                    sb.AppendLine($"        public static void Compute_{prop.Name}(RecordHandle handle)");
+                    sb.AppendLine($"        public static void Compute_{prop.Name}(RecordSet<{primaryInterface}> self)");
                     sb.AppendLine("        {");
-                    sb.AppendLine($"            // Default implementation - compute method should be registered via [OdooLogic]");
-                    sb.AppendLine($"            var pipeline = handle.Env.GetPipeline<Action<RecordHandle>>(");
+                    sb.AppendLine($"            // Call compute method via pipeline - module provides actual logic");
+                    sb.AppendLine($"            var pipeline = self.Env.GetPipeline<Action<RecordSet<{primaryInterface}>>>(");
                     sb.AppendLine($"                \"{model.ModelName}\", \"{computeMethodName}\");");
-                    sb.AppendLine("            pipeline(handle);");
+                    sb.AppendLine("            pipeline(self);");
                     sb.AppendLine();
-                    sb.AppendLine("            // Clear the needs-recompute flag");
-                    sb.AppendLine("            if (handle.Env is OdooEnvironment odooEnv)");
+                    sb.AppendLine("            // Clear the needs-recompute flag for all records in the set");
+                    sb.AppendLine("            if (self.Env is OdooEnvironment odooEnv)");
                     sb.AppendLine("            {");
-                    sb.AppendLine($"                odooEnv.ComputeTracker.ClearRecompute(");
-                    sb.AppendLine($"                    ModelSchema.{className}.ModelToken, handle.Id, ModelSchema.{className}.{prop.Name});");
+                    sb.AppendLine("                foreach (var id in self.Ids)");
+                    sb.AppendLine("                {");
+                    sb.AppendLine($"                    odooEnv.ComputeTracker.ClearRecompute(");
+                    sb.AppendLine($"                        ModelSchema.{className}.ModelToken, id, ModelSchema.{className}.{prop.Name});");
+                    sb.AppendLine("                }");
                     sb.AppendLine("            }");
                     sb.AppendLine("        }");
                     sb.AppendLine();
@@ -640,9 +650,9 @@ namespace Odoo.SourceGenerator
                     // Base compute that does nothing (placeholder for modules to override)
                     sb.AppendLine($"        /// <summary>");
                     sb.AppendLine($"        /// Base compute for {prop.Name} - does nothing by default.");
-                    sb.AppendLine($"        /// Modules provide the actual compute logic.");
+                    sb.AppendLine($"        /// Modules provide the actual compute logic via [OdooLogic] attribute.");
                     sb.AppendLine($"        /// </summary>");
-                    sb.AppendLine($"        public static void Compute_{prop.Name}_Base(RecordHandle handle)");
+                    sb.AppendLine($"        public static void Compute_{prop.Name}_Base(RecordSet<{primaryInterface}> self)");
                     sb.AppendLine("        {");
                     sb.AppendLine("            // No-op base - actual computation provided by module");
                     sb.AppendLine("        }");
@@ -1132,9 +1142,12 @@ namespace Odoo.SourceGenerator
                 sb.AppendLine($"            builder.RegisterBase(\"{model.ModelName}\", \"create\", ");
                 sb.AppendLine($"                (Func<IEnvironment, Dictionary<string, object?>, {className}>){pipelineClass}.Create_Base);");
                 
-                // Register compute pipelines for computed fields
+                // Register compute pipelines for computed fields (batch RecordSet pattern)
                 var computedProps = model.Properties.Where(p =>
                     p.GetAttributes().Any(a => a.AttributeClass?.Name == "OdooComputeAttribute")).ToList();
+                
+                // Get the primary interface for RecordSet type parameter
+                var primaryInterfaceForReg = model.Interfaces.FirstOrDefault()?.ToDisplayString() ?? "IOdooRecord";
                 
                 foreach (var prop in computedProps)
                 {
@@ -1146,7 +1159,7 @@ namespace Odoo.SourceGenerator
                         : $"_compute_{prop.Name.ToLower()}";
                     
                     sb.AppendLine($"            builder.RegisterBase(\"{model.ModelName}\", \"{computeMethodName}\", ");
-                    sb.AppendLine($"                (Action<RecordHandle>){pipelineClass}.Compute_{prop.Name}_Base);");
+                    sb.AppendLine($"                (Action<RecordSet<{primaryInterfaceForReg}>>){pipelineClass}.Compute_{prop.Name}_Base);");
                 }
             }
 

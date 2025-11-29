@@ -31,8 +31,9 @@ class Program
             Console.WriteLine("  5. Modularity & Pipeline Demo");
             Console.WriteLine("  6. Typed API Demo (Source Generator showcase)");
             Console.WriteLine("  7. Write/Create Pipeline Demo (Odoo-aligned architecture)");
+            Console.WriteLine("  8. Computed Fields Demo (Odoo @api.depends pattern)");
             Console.WriteLine();
-            Console.Write("Enter your choice (1-7): ");
+            Console.Write("Enter your choice (1-8): ");
 
             choice = Console.ReadLine();
         }
@@ -62,6 +63,9 @@ class Program
                 break;
             case "7":
                 RunWritePipelineDemo();
+                break;
+            case "8":
+                RunComputedFieldDemo();
                 break;
             default:
                 Console.WriteLine("Invalid choice. Running Basic Demo...");
@@ -206,6 +210,19 @@ class Program
         catch (Exception ex)
         {
             Console.WriteLine($"Error running Write/Create pipeline demo: {ex.Message}");
+            Console.WriteLine(ex.StackTrace);
+        }
+    }
+
+    static void RunComputedFieldDemo()
+    {
+        try
+        {
+            ComputedFieldDemo.RunDemo();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error running Computed Fields demo: {ex.Message}");
             Console.WriteLine(ex.StackTrace);
         }
     }
