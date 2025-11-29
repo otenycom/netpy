@@ -406,18 +406,37 @@ namespace Odoo.SourceGenerator
                 if (isComputed)
                 {
                     // Computed field - trigger computation if needed (batch pattern)
+                    // Odoo pattern: computed fields are lazy-loaded on first access
                     sb.AppendLine("            get");
                     sb.AppendLine("            {");
-                    sb.AppendLine($"                // Computed field - check if recomputation needed");
-                    sb.AppendLine($"                if (Env is OdooEnvironment odooEnv && ");
-                    sb.AppendLine($"                    odooEnv.ComputeTracker.NeedsRecompute(ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name}))");
+                    sb.AppendLine($"                // Computed field - check if recomputation needed OR value not in cache");
+                    sb.AppendLine($"                // Odoo pattern: compute on first access (lazy) or when dependencies change");
+                    sb.AppendLine($"                var modelToken = ModelSchema.{className}.ModelToken;");
+                    sb.AppendLine($"                var fieldToken = ModelSchema.{className}.{prop.Name};");
+                    sb.AppendLine($"                ");
+                    sb.AppendLine($"                bool needsCompute = false;");
+                    sb.AppendLine($"                if (Env is OdooEnvironment odooEnv)");
+                    sb.AppendLine("                {");
+                    sb.AppendLine($"                    // Check if marked for recompute (dependency changed) OR not yet computed");
+                    sb.AppendLine($"                    needsCompute = odooEnv.ComputeTracker.NeedsRecompute(modelToken, Id, fieldToken)");
+                    sb.AppendLine($"                        || !Env.Columns.HasValue(modelToken, Id, fieldToken);");
+                    sb.AppendLine("                }");
+                    sb.AppendLine($"                else");
+                    sb.AppendLine("                {");
+                    sb.AppendLine($"                    // Fallback: compute if not in cache");
+                    sb.AppendLine($"                    needsCompute = !Env.Columns.HasValue(modelToken, Id, fieldToken);");
+                    sb.AppendLine("                }");
+                    sb.AppendLine($"                ");
+                    sb.AppendLine($"                if (needsCompute)");
                     sb.AppendLine("                {");
                     sb.AppendLine($"                    // Trigger recomputation using batch RecordSet pattern (like Odoo)");
-                    sb.AppendLine($"                    var recordSet = odooEnv.CreateRecordSet<{prop.ContainingType.ToDisplayString()}>(new[] {{ Id }});");
-                    sb.AppendLine($"                    {className}Pipelines.Compute_{prop.Name}(recordSet);");
+                    sb.AppendLine($"                    if (Env is OdooEnvironment odooEnv2)");
+                    sb.AppendLine("                    {");
+                    sb.AppendLine($"                        var recordSet = odooEnv2.CreateRecordSet<{prop.ContainingType.ToDisplayString()}>(new[] {{ Id }});");
+                    sb.AppendLine($"                        {className}Pipelines.Compute_{prop.Name}(recordSet);");
+                    sb.AppendLine("                    }");
                     sb.AppendLine("                }");
-                    sb.AppendLine($"                return Env.Columns.GetValue<{propertyType}>(");
-                    sb.AppendLine($"                    ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name});");
+                    sb.AppendLine($"                return Env.Columns.GetValue<{propertyType}>(modelToken, Id, fieldToken);");
                     sb.AppendLine("            }");
                     
                     // COMPUTED FIELD SETTER: Check protection and branch (Odoo pattern)
