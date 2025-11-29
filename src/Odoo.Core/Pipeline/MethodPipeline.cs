@@ -16,6 +16,14 @@ namespace Odoo.Core.Pipeline
             _baseHandler = handler;
         }
 
+        public void SetDefaultBase(Delegate handler)
+        {
+            if (_baseHandler == null)
+            {
+                _baseHandler = handler;
+            }
+        }
+
         public void AddOverride(int priority, Delegate handler)
         {
             _overrides.Add((priority, handler));

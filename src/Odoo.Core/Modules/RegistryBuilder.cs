@@ -9,6 +9,7 @@ namespace Odoo.Core.Modules
     public class RegistryBuilder
     {
         private readonly Dictionary<string, ModelSchema> _models = new();
+        private readonly Dictionary<(int, int), List<(int, int)>> _dependencies = new();
 
         public void ScanAssembly(Assembly assembly)
         {
@@ -67,6 +68,38 @@ namespace Odoo.Core.Modules
                             );
                             schema.Fields[fieldName] = fieldSchema;
                         }
+
+                        // Register dependencies
+                        var dependsAttr = prop.GetCustomAttribute<OdooDependsAttribute>();
+                        if (dependsAttr != null)
+                        {
+                            var dependentFieldToken = schema.Fields[fieldName].Token;
+                            var dependentModelToken = schema.Token;
+
+                            foreach (var sourceFieldName in dependsAttr.Fields)
+                            {
+                                // TODO: Handle dot notation for related fields
+                                if (!sourceFieldName.Contains("."))
+                                {
+                                    // Calculate source field token (stable hash of "model.field")
+                                    var sourceTokenVal = GetStableHashCode($"{modelName}.{sourceFieldName}");
+                                    var sourceKey = (dependentModelToken.Token, sourceTokenVal);
+
+                                    if (!_dependencies.TryGetValue(sourceKey, out var dependents))
+                                    {
+                                        dependents = new List<(int, int)>();
+                                        _dependencies[sourceKey] = dependents;
+                                    }
+
+                                    var dep = (dependentModelToken.Token, dependentFieldToken.Token);
+                                    if (!dependents.Contains(dep))
+                                    {
+                                        dependents.Add(dep);
+                                        Console.WriteLine($"[Registry] Registered dependency: {modelName}.{sourceFieldName} ({sourceTokenVal}) -> {modelName}.{fieldName} ({dependentFieldToken.Token})");
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -74,7 +107,7 @@ namespace Odoo.Core.Modules
 
         public ModelRegistry Build()
         {
-            return new ModelRegistry(_models);
+            return new ModelRegistry(_models, _dependencies);
         }
 
         // Deterministic hash code for stable tokens across compilations/runs

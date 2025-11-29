@@ -1,8 +1,8 @@
 # Write/Create Pipeline Architecture
 
-## Implementation Status: ✅ COMPLETE (Manual Compute), ⚠️ Automatic Compute Pending
+## Implementation Status: ✅ COMPLETE (Automatic Compute)
 
-The Write/Create pipeline architecture has been fully implemented and is working. Computed fields are functional with manual triggering. The next step is to make computed field recomputation automatic based on `[OdooDepends]`.
+The Write/Create pipeline architecture has been fully implemented and is working. Computed fields are functional with **automatic recomputation** based on `[OdooDepends]`.
 
 ---
 
@@ -21,30 +21,30 @@ The Write/Create pipeline architecture has been fully implemented and is working
 | SetComputedValue helper | ✅ | OdooEnvironment.cs |
 | Computed field attributes | ✅ | ComputedFieldAttributes.cs |
 | Manual compute method calls | ✅ | Demo 8 |
-| **Automatic compute triggers** | ⚠️ TODO | See next section |
+| **Automatic compute triggers** | ✅ | `[OdooDepends]` triggers recompute |
 
 ### Demos
 
 - **Demo 7**: Write/Create Pipeline - Shows module override pattern
-- **Demo 8**: Computed Fields - Shows manual compute trigger pattern
+- **Demo 8**: Computed Fields - Shows automatic recomputation via `[OdooDepends]`
 
 ---
 
-## 🔴 NEXT: Automatic Computed Field Triggering
+## ✅ COMPLETED: Automatic Computed Field Triggering
 
-### Problem
+### Solution Implemented
 
-Currently, computed field recomputation is **manual**. Demo 8 explicitly calls `PartnerLogic.ComputeDisplayName(recordSet)`. We need the ORM to automatically trigger recomputation when dependent fields change.
+Computed field recomputation is now **automatic**. The ORM automatically triggers recomputation when dependent fields change, or when a computed field is accessed and marked as needing recomputation.
 
-### Required Changes
+### Changes Made
 
 | Task | File | Description |
 |------|------|-------------|
-| **1.1** | `OdooModelGenerator.cs` | Generate Modified() call in Write_Base when stored fields change |
-| **1.2** | `OdooModelGenerator.cs` | Update property setter to call Modified() after Write |
-| **1.3** | `ComputeTracker.cs` | Build dependency graph at startup from `[OdooDepends]` attributes |
-| **1.4** | `OdooModelGenerator.cs` | Generate getter logic to check NeedsRecompute and auto-trigger pipeline |
-| **1.5** | `ComputedFieldDemo.cs` | Update demo to show automatic recomputation (remove manual calls) |
+| **1.1** | `OdooModelGenerator.cs` | Generated Modified() call in Write_Base when stored fields change |
+| **1.2** | `OdooModelGenerator.cs` | Updated property setter to call Modified() after Write |
+| **1.3** | `RegistryBuilder.cs` | Builds dependency graph at startup from `[OdooDepends]` attributes |
+| **1.4** | `OdooModelGenerator.cs` | Generated getter logic to check NeedsRecompute and auto-trigger pipeline |
+| **1.5** | `ComputedFieldDemo.cs` | Updated demo to show automatic recomputation |
 
 ### Sequence Diagram: Automatic Recomputation
 
@@ -175,7 +175,7 @@ public string DisplayName
 4. ✅ **Batch compute pattern** - `RecordSet<T>` parameter like Odoo's `for record in self:`
 5. ✅ **SetComputedValue** - Bypasses Write pipeline to avoid recursion
 6. ✅ **Lazy recomputation** - Computed fields recompute on access, not on dependency change
-7. ⚠️ **Automatic triggers** - Modified() should mark dependents for recompute (TODO)
+7. ✅ **Automatic triggers** - Modified() marks dependents for recompute
 
 ---
 
@@ -281,7 +281,7 @@ public static void ComputeDisplayName(RecordSet<IPartnerBase> self)
 # Write/Create Pipeline Demo
 cd samples/Odoo.Demo && dotnet run -- 7
 
-# Computed Fields Demo (manual triggers)
+# Computed Fields Demo (automatic triggers)
 cd samples/Odoo.Demo && dotnet run -- 8
 ```
 
@@ -306,5 +306,5 @@ cd samples/Odoo.Demo && dotnet run -- 8
 2. ✅ **Type-safe** - Strong typing with Values structs and interfaces
 3. ✅ **High performance** - Direct cache reads, compiled pipelines, columnar storage
 4. ✅ **Module extensibility** - Override Write/Create via `[OdooLogic]`
-5. ✅ **Computed fields** - Batch pattern with automatic recomputation (pending automatic triggers)
+5. ✅ **Computed fields** - Batch pattern with automatic recomputation
 6. ✅ **Dirty tracking** - Lazy persistence with explicit Flush()

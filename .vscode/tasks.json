@@ -14,6 +14,60 @@
             "problemMatcher": "$msCompile"
         },
         {
+            "label": "build-tests",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "build",
+                "${workspaceFolder}/tests/Odoo.Tests/Odoo.Tests.csproj",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary;ForceNoAlign"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "debug-test-selected",
+            "type": "shell",
+            "command": "VSTEST_HOST_DEBUG=1 dotnet test ${workspaceFolder}/tests/Odoo.Tests/Odoo.Tests.csproj --filter \"FullyQualifiedName~${selectedText}\" --no-build",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "build-tests",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^Host debugging is enabled\\. Please attach debugger to testhost process to continue\\.$",
+                    "file": 1
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^.*Starting test execution.*$",
+                    "endsPattern": "^Host debugging is enabled\\. Please attach debugger to testhost process to continue\\.$"
+                }
+            }
+        },
+        {
+            "label": "debug-test-all",
+            "type": "shell",
+            "command": "VSTEST_HOST_DEBUG=1 dotnet test ${workspaceFolder}/tests/Odoo.Tests/Odoo.Tests.csproj --no-build",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "build-tests",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^Host debugging is enabled\\. Please attach debugger to testhost process to continue\\.$",
+                    "file": 1
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^.*Starting test execution.*$",
+                    "endsPattern": "^Host debugging is enabled\\. Please attach debugger to testhost process to continue\\.$"
+                }
+            }
+        },
+        {
             "label": "build-all",
             "command": "dotnet",
             "type": "process",

@@ -49,6 +49,10 @@ namespace Odoo.Base.Logic
         /// This method is registered via [OdooLogic] and called by the generated
         /// Compute_DisplayName method when the field needs recomputation.
         ///
+        /// The Compute_DisplayName method wraps this call with `env.Protecting()`
+        /// which allows us to use direct property assignment: `partner.DisplayName = value`.
+        /// This is the exact same pattern as Odoo Python!
+        ///
         /// Logic:
         /// - Companies: "Name | Company"
         /// - Individuals: "Name"
@@ -58,6 +62,8 @@ namespace Odoo.Base.Logic
         {
             Console.WriteLine($"[Compute] Computing display_name for {self.Count} partner(s)...");
             
+            // Simple Odoo-like pattern: for record in self: record.field = computed_value
+            // The protection mechanism (env.Protecting) wraps this call, allowing direct assignment
             foreach (var partner in self)
             {
                 var name = partner.Name ?? "";
@@ -65,49 +71,11 @@ namespace Odoo.Base.Logic
                     ? $"{name} | Company"
                     : name;
                 
-                // Use SetComputedValue to bypass the Write pipeline
-                // This avoids infinite recursion and correctly handles computed fields
-                // Note: We need to use generic field token access since ModelSchema
-                // is generated per-assembly and might not be directly accessible
-                SetDisplayNameValue(partner.Env, partner.Id, displayName);
+                // Direct property assignment - like Odoo Python!
+                // This works because Compute_DisplayName wraps us with Protecting()
+                partner.DisplayName = displayName;
                 
                 Console.WriteLine($"[Compute] Partner {partner.Id}: DisplayName = '{displayName}'");
-            }
-        }
-        
-        /// <summary>
-        /// Helper to set computed display_name value using generic cache access.
-        /// In the generated code, this would use ModelSchema.Partner.DisplayName token.
-        /// </summary>
-        private static void SetDisplayNameValue(IEnvironment env, int recordId, string value)
-        {
-            // Use stable hash code to compute the field token (same algorithm as generator)
-            const string modelName = "res.partner";
-            const string fieldName = "display_name";
-            var modelToken = GetStableHashCode(modelName);
-            var fieldToken = GetStableHashCode($"{modelName}.{fieldName}");
-            
-            // Use the SetComputedValue extension method
-            env.SetComputedValue(
-                new ModelHandle(modelToken),
-                recordId,
-                new FieldHandle(fieldToken),
-                value);
-        }
-        
-        /// <summary>
-        /// Stable hash code algorithm - matches the source generator.
-        /// </summary>
-        private static int GetStableHashCode(string str)
-        {
-            unchecked
-            {
-                int hash = 23;
-                foreach (char c in str)
-                {
-                    hash = hash * 31 + c;
-                }
-                return hash;
             }
         }
         

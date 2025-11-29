@@ -26,6 +26,14 @@ namespace Odoo.Core
         /// Key is (ModelToken, RecordId), Value is the unified wrapper instance.
         /// </summary>
         private readonly Dictionary<(int ModelToken, int Id), IOdooRecord> _identityMap = new();
+        
+        /// <summary>
+        /// Protection tracking: Field → Set of protected record IDs.
+        /// Protected records can have computed field setters write directly to cache
+        /// without triggering the Write pipeline (which would cause infinite recursion).
+        /// Mirrors Odoo's env._protected pattern.
+        /// </summary>
+        private readonly Dictionary<FieldHandle, HashSet<int>> _protected = new();
 
         public int UserId { get; }
         public IColumnarCache Columns { get; }
@@ -60,7 +68,7 @@ namespace Odoo.Core
             _pipelineRegistry = pipelineRegistry ?? new PipelineRegistry();
             IdGenerator = new IdGenerator();
             DirtyTracker = dirtyTracker ?? new DirtyTracker();
-            ComputeTracker = computeTracker ?? new ComputeTracker();
+            ComputeTracker = computeTracker ?? new ComputeTracker(_modelRegistry);
         }
         
         /// <summary>
@@ -463,6 +471,118 @@ namespace Odoo.Core
             
             // Clear the recompute flag since we just computed it
             ComputeTracker.ClearRecompute(model, recordId, field);
+        }
+        
+        // --- Protection Mechanism for Computed Fields ---
+        
+        /// <summary>
+        /// Check if a record is currently protected for a specific field.
+        /// During protection, setters bypass the Write pipeline and write directly to cache.
+        /// This prevents infinite recursion when compute methods set computed field values.
+        /// <para>
+        /// Mirrors Odoo's check: <c>record_id in records.env._protected.get(self, ())</c>
+        /// </para>
+        /// </summary>
+        /// <param name="field">The field handle</param>
+        /// <param name="recordId">The record ID</param>
+        /// <returns>True if the record is protected for this field, false otherwise</returns>
+        public bool IsProtected(FieldHandle field, int recordId)
+        {
+            return _protected.TryGetValue(field, out var ids) && ids.Contains(recordId);
+        }
+        
+        /// <summary>
+        /// Protect records for specific fields during computation.
+        /// Returns an IDisposable scope that removes protection on dispose.
+        /// <para>
+        /// Mirrors Odoo's <c>env.protecting(fields, records)</c> context manager.
+        /// Use this to wrap compute method execution so that computed field setters
+        /// can write directly to cache without triggering the Write pipeline.
+        /// </para>
+        /// </summary>
+        /// <param name="fields">Fields to protect</param>
+        /// <param name="recordIds">Record IDs to protect</param>
+        /// <returns>Disposable scope that clears protection when disposed</returns>
+        /// <example>
+        /// <code>
+        /// using (odooEnv.Protecting(new[] { ModelSchema.ResPartner.DisplayName }, self.Ids))
+        /// {
+        ///     // Inside this block, partner.DisplayName = value writes directly to cache
+        ///     foreach (var partner in self)
+        ///     {
+        ///         partner.DisplayName = ComputeValue(partner);
+        ///     }
+        /// }
+        /// </code>
+        /// </example>
+        public IDisposable Protecting(IEnumerable<FieldHandle> fields, IEnumerable<int> recordIds)
+        {
+            var fieldList = fields.ToList();
+            var idSet = recordIds.ToHashSet();
+            
+            foreach (var field in fieldList)
+            {
+                if (!_protected.TryGetValue(field, out var ids))
+                {
+                    ids = new HashSet<int>();
+                    _protected[field] = ids;
+                }
+                ids.UnionWith(idSet);
+            }
+            
+            return new ProtectionScope(this, fieldList, idSet);
+        }
+        
+        /// <summary>
+        /// Remove protection for specific fields and record IDs.
+        /// Called by ProtectionScope.Dispose().
+        /// </summary>
+        private void ClearProtection(IEnumerable<FieldHandle> fields, IEnumerable<int> recordIds)
+        {
+            foreach (var field in fields)
+            {
+                if (_protected.TryGetValue(field, out var ids))
+                {
+                    foreach (var id in recordIds)
+                    {
+                        ids.Remove(id);
+                    }
+                    
+                    // Clean up empty sets to prevent memory growth
+                    if (ids.Count == 0)
+                    {
+                        _protected.Remove(field);
+                    }
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Disposable scope that removes field protection when disposed.
+        /// Created by <see cref="Protecting"/> method.
+        /// </summary>
+        private sealed class ProtectionScope : IDisposable
+        {
+            private readonly OdooEnvironment _env;
+            private readonly List<FieldHandle> _fields;
+            private readonly HashSet<int> _recordIds;
+            private bool _disposed;
+            
+            public ProtectionScope(OdooEnvironment env, List<FieldHandle> fields, HashSet<int> recordIds)
+            {
+                _env = env;
+                _fields = fields;
+                _recordIds = recordIds;
+            }
+            
+            public void Dispose()
+            {
+                if (!_disposed)
+                {
+                    _disposed = true;
+                    _env.ClearProtection(_fields, _recordIds);
+                }
+            }
         }
     }
     

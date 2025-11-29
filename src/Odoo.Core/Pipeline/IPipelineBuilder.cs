@@ -17,6 +17,13 @@ namespace Odoo.Core.Pipeline
         void RegisterBase(string model, string method, Delegate handler);
 
         /// <summary>
+        /// Register a default base implementation.
+        /// Only sets the base if it hasn't been set yet.
+        /// Used by generated code to provide default behavior without overwriting module logic.
+        /// </summary>
+        void RegisterDefaultBase(string model, string method, Delegate handler);
+
+        /// <summary>
         /// Register an override (wrapper node of the pipeline).
         /// </summary>
         /// <param name="model">Model name</param>

@@ -2,6 +2,53 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Run Selected Test",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-tests",
+            "program": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/tests/Odoo.Tests/Odoo.Tests.csproj",
+                "--filter",
+                "FullyQualifiedName~${selectedText}",
+                "--no-build"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "stopAtEntry": false,
+            "enableStepFiltering": false,
+            "logging": {
+                "moduleLoad": false
+            }
+        },
+        {
+            "name": "Run All Tests",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-tests",
+            "program": "dotnet",
+            "args": [
+                "test",
+                "${workspaceFolder}/tests/Odoo.Tests/Odoo.Tests.csproj",
+                "--no-build"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "stopAtEntry": false,
+            "enableStepFiltering": false,
+            "logging": {
+                "moduleLoad": false
+            }
+        },
+        {
+            "name": "Attach to TestHost",
+            "type": "coreclr",
+            "request": "attach",
+            "processName": "testhost",
+            "justMyCode": false
+        },
+        {
             "name": "Odoo.Demo (Interactive Menu)",
             "type": "coreclr",
             "request": "launch",
@@ -67,6 +114,14 @@
                 }
             ],
             "justMyCode": false
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Debug Selected Test (Compound)",
+            "configurations": ["Attach to TestHost"],
+            "preLaunchTask": "debug-test-selected",
+            "stopAll": true
         }
     ]
 }

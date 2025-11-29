@@ -413,11 +413,36 @@ namespace Odoo.SourceGenerator
                     sb.AppendLine($"                    odooEnv.ComputeTracker.NeedsRecompute(ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name}))");
                     sb.AppendLine("                {");
                     sb.AppendLine($"                    // Trigger recomputation using batch RecordSet pattern (like Odoo)");
-                    sb.AppendLine($"                    var recordSet = odooEnv.CreateRecordSet<{primaryInterface}>(new[] {{ Id }});");
+                    sb.AppendLine($"                    var recordSet = odooEnv.CreateRecordSet<{prop.ContainingType.ToDisplayString()}>(new[] {{ Id }});");
                     sb.AppendLine($"                    {className}Pipelines.Compute_{prop.Name}(recordSet);");
                     sb.AppendLine("                }");
                     sb.AppendLine($"                return Env.Columns.GetValue<{propertyType}>(");
                     sb.AppendLine($"                    ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name});");
+                    sb.AppendLine("            }");
+                    
+                    // COMPUTED FIELD SETTER: Check protection and branch (Odoo pattern)
+                    // During compute method execution, records are "protected" allowing direct cache write
+                    // Outside computation, attempting to set a computed field throws an error
+                    sb.AppendLine("            set");
+                    sb.AppendLine("            {");
+                    sb.AppendLine($"                // Computed field setter - check if protected (during compute)");
+                    sb.AppendLine($"                if (Env is OdooEnvironment odooEnv && ");
+                    sb.AppendLine($"                    odooEnv.IsProtected(ModelSchema.{className}.{prop.Name}, Id))");
+                    sb.AppendLine("                {");
+                    sb.AppendLine($"                    // Protected path: direct cache write (during computation)");
+                    sb.AppendLine($"                    // This is the Odoo pattern: compute methods can set computed fields directly");
+                    sb.AppendLine($"                    Env.Columns.SetValue(");
+                    sb.AppendLine($"                        ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name}, value);");
+                    sb.AppendLine("                }");
+                    sb.AppendLine("                else");
+                    sb.AppendLine("                {");
+                    sb.AppendLine($"                    // Not protected: computed field with no inverse cannot be written directly");
+                    sb.AppendLine($"                    // TODO: When [OdooInverse] is implemented, call the inverse method here");
+                    sb.AppendLine($"                    throw new InvalidOperationException(");
+                    sb.AppendLine($"                        $\"Cannot directly write to computed field '{fieldName}' on {model.ModelName}. \" +");
+                    sb.AppendLine($"                        \"This field is computed and has no inverse method defined. \" +");
+                    sb.AppendLine($"                        \"Computed fields can only be set within their compute method.\");");
+                    sb.AppendLine("                }");
                     sb.AppendLine("            }");
                 }
                 else
@@ -426,17 +451,17 @@ namespace Odoo.SourceGenerator
                     sb.AppendLine($"            [MethodImpl(MethodImplOptions.AggressiveInlining)]");
                     sb.AppendLine($"            get => Env.Columns.GetValue<{propertyType}>(");
                     sb.AppendLine($"                ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name});");
-                }
-                
-                // SETTER: Delegate to Write() pipeline (like Odoo Field.__set__)
-                if (!prop.IsReadOnly)
-                {
-                    sb.AppendLine("            set");
-                    sb.AppendLine("            {");
-                    sb.AppendLine($"                // Delegate to Write() pipeline - Odoo pattern");
-                    sb.AppendLine($"                var vals = new Dictionary<string, object?> {{ {{ \"{fieldName}\", value }} }};");
-                    sb.AppendLine($"                {className}Pipelines.Write(_handle, vals);");
-                    sb.AppendLine("            }");
+                    
+                    // SETTER: Delegate to Write() pipeline (like Odoo Field.__set__)
+                    if (!prop.IsReadOnly)
+                    {
+                        sb.AppendLine("            set");
+                        sb.AppendLine("            {");
+                        sb.AppendLine($"                // Delegate to Write() pipeline - Odoo pattern");
+                        sb.AppendLine($"                var vals = new Dictionary<string, object?> {{ {{ \"{fieldName}\", value }} }};");
+                        sb.AppendLine($"                {className}Pipelines.Write(_handle, vals);");
+                        sb.AppendLine("            }");
+                    }
                 }
                 
                 sb.AppendLine("        }");
@@ -624,25 +649,45 @@ namespace Odoo.SourceGenerator
                         ? computeAttr.ConstructorArguments[0].Value?.ToString() ?? $"_compute_{prop.Name.ToLower()}"
                         : $"_compute_{prop.Name.ToLower()}";
                     
+                    // Use the interface where the property is defined for the RecordSet type
+                    // This ensures compatibility with logic methods defined in upstream modules
+                    var definingInterface = prop.ContainingType.ToDisplayString();
+
                     sb.AppendLine($"        /// <summary>");
                     sb.AppendLine($"        /// Trigger computation for {prop.Name} field using batch RecordSet pattern.");
                     sb.AppendLine($"        /// This mirrors Odoo's pattern: for record in self: record.field = computed_value");
+                    sb.AppendLine($"        /// ");
+                    sb.AppendLine($"        /// Uses Odoo's protection mechanism: records are 'protected' during computation,");
+                    sb.AppendLine($"        /// allowing the compute method to directly set the computed field value without");
+                    sb.AppendLine($"        /// triggering the Write pipeline or causing infinite recursion.");
                     sb.AppendLine($"        /// </summary>");
-                    sb.AppendLine($"        public static void Compute_{prop.Name}(RecordSet<{primaryInterface}> self)");
+                    sb.AppendLine($"        public static void Compute_{prop.Name}(RecordSet<{definingInterface}> self)");
                     sb.AppendLine("        {");
-                    sb.AppendLine($"            // Call compute method via pipeline - module provides actual logic");
-                    sb.AppendLine($"            var pipeline = self.Env.GetPipeline<Action<RecordSet<{primaryInterface}>>>(");
-                    sb.AppendLine($"                \"{model.ModelName}\", \"{computeMethodName}\");");
-                    sb.AppendLine("            pipeline(self);");
-                    sb.AppendLine();
-                    sb.AppendLine("            // Clear the needs-recompute flag for all records in the set");
+                    sb.AppendLine("            // Wrap compute in protection scope (Odoo's env.protecting pattern)");
+                    sb.AppendLine("            // This allows compute methods to directly set computed field values");
                     sb.AppendLine("            if (self.Env is OdooEnvironment odooEnv)");
                     sb.AppendLine("            {");
+                    sb.AppendLine($"                using (odooEnv.Protecting(new[] {{ ModelSchema.{className}.{prop.Name} }}, self.Ids))");
+                    sb.AppendLine("                {");
+                    sb.AppendLine($"                    // Call compute method via pipeline - module provides actual logic");
+                    sb.AppendLine($"                    var pipeline = self.Env.GetPipeline<Action<RecordSet<{definingInterface}>>>(");
+                    sb.AppendLine($"                        \"{model.ModelName}\", \"{computeMethodName}\");");
+                    sb.AppendLine("                    pipeline(self);");
+                    sb.AppendLine("                }");
+                    sb.AppendLine();
+                    sb.AppendLine("                // Clear the needs-recompute flag for all records in the set");
                     sb.AppendLine("                foreach (var id in self.Ids)");
                     sb.AppendLine("                {");
                     sb.AppendLine($"                    odooEnv.ComputeTracker.ClearRecompute(");
                     sb.AppendLine($"                        ModelSchema.{className}.ModelToken, id, ModelSchema.{className}.{prop.Name});");
                     sb.AppendLine("                }");
+                    sb.AppendLine("            }");
+                    sb.AppendLine("            else");
+                    sb.AppendLine("            {");
+                    sb.AppendLine($"                // Fallback without protection (testing scenarios)");
+                    sb.AppendLine($"                var pipeline = self.Env.GetPipeline<Action<RecordSet<{definingInterface}>>>(");
+                    sb.AppendLine($"                    \"{model.ModelName}\", \"{computeMethodName}\");");
+                    sb.AppendLine("                pipeline(self);");
                     sb.AppendLine("            }");
                     sb.AppendLine("        }");
                     sb.AppendLine();
@@ -652,7 +697,7 @@ namespace Odoo.SourceGenerator
                     sb.AppendLine($"        /// Base compute for {prop.Name} - does nothing by default.");
                     sb.AppendLine($"        /// Modules provide the actual compute logic via [OdooLogic] attribute.");
                     sb.AppendLine($"        /// </summary>");
-                    sb.AppendLine($"        public static void Compute_{prop.Name}_Base(RecordSet<{primaryInterface}> self)");
+                    sb.AppendLine($"        public static void Compute_{prop.Name}_Base(RecordSet<{definingInterface}> self)");
                     sb.AppendLine("        {");
                     sb.AppendLine("            // No-op base - actual computation provided by module");
                     sb.AppendLine("        }");
@@ -1158,8 +1203,11 @@ namespace Odoo.SourceGenerator
                         ? computeAttr.ConstructorArguments[0].Value?.ToString() ?? $"_compute_{prop.Name.ToLower()}"
                         : $"_compute_{prop.Name.ToLower()}";
                     
-                    sb.AppendLine($"            builder.RegisterBase(\"{model.ModelName}\", \"{computeMethodName}\", ");
-                    sb.AppendLine($"                (Action<RecordSet<{primaryInterfaceForReg}>>){pipelineClass}.Compute_{prop.Name}_Base);");
+                    // Use the interface where the property is defined
+                    var definingInterface = prop.ContainingType.ToDisplayString();
+
+                    sb.AppendLine($"            builder.RegisterDefaultBase(\"{model.ModelName}\", \"{computeMethodName}\", ");
+                    sb.AppendLine($"                (Action<RecordSet<{definingInterface}>>){pipelineClass}.Compute_{prop.Name}_Base);");
                 }
             }
 

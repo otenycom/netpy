@@ -14,6 +14,12 @@ namespace Odoo.Core.Pipeline
             pipeline.SetBase(handler);
         }
 
+        public void RegisterDefaultBase(string model, string method, Delegate handler)
+        {
+            var pipeline = GetOrAddPipeline(model, method);
+            pipeline.SetDefaultBase(handler);
+        }
+
         public void RegisterOverride(string model, string method, int priority, Delegate handler)
         {
             var pipeline = GetOrAddPipeline(model, method);

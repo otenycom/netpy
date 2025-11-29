@@ -147,34 +147,24 @@ namespace Odoo.Examples
             Console.WriteLine();
 
             // ═══════════════════════════════════════════════════════════════════
-            // 4. MANUAL COMPUTE TRIGGER (SIMULATION)
+            // 4. AUTOMATIC COMPUTE TRIGGER
             // ═══════════════════════════════════════════════════════════════════
             Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║  4. MANUAL COMPUTE TRIGGER (Simulation)                      ║");
+            Console.WriteLine("║  4. AUTOMATIC COMPUTE TRIGGER                                ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
 
-            Console.WriteLine("Simulating what the generated getter would do...");
+            Console.WriteLine("Accessing partner.DisplayName...");
+            Console.WriteLine("The generated getter will:");
             Console.WriteLine("  1. Check NeedsRecompute(model, id, field)");
-            Console.WriteLine("  2. If true, create RecordSet with this ID");
-            Console.WriteLine("  3. Call compute method: _compute_display_name(recordSet)");
-            Console.WriteLine("  4. Read value from cache");
+            Console.WriteLine("  2. If true, trigger the compute pipeline automatically");
+            Console.WriteLine("  3. Return the value from cache");
             Console.WriteLine();
             
-            // Simulate the compute call manually
-            var partnerRecordSet = env.GetRecords<IPartnerBase>("res.partner", new[] { partner.Id });
-            Console.WriteLine($"Calling ComputeDisplayName for partner {partner.Id}...");
-            Console.WriteLine();
+            // Access the property directly - triggers recomputation if needed
+            var displayName = partner.DisplayName;
             
-            // Call the compute method directly (this simulates what the getter would do)
-            Odoo.Base.Logic.PartnerLogic.ComputeDisplayName(partnerRecordSet);
-            
-            Console.WriteLine();
-            Console.WriteLine("Reading computed value from cache...");
-            
-            // Read the computed value using the same token algorithm
-            var displayName = GetComputedDisplayName(env, partner.Id);
-            Console.WriteLine($"  partner.DisplayName = \"{displayName ?? "(null)"}\"");
+            Console.WriteLine($"  partner.DisplayName = \"{displayName}\"");
             Console.WriteLine();
 
             // ═══════════════════════════════════════════════════════════════════
@@ -197,13 +187,12 @@ namespace Odoo.Examples
             Console.WriteLine("  3. Next access to DisplayName triggers recomputation");
             Console.WriteLine();
             
-            // Simulate recomputation
-            Console.WriteLine("Triggering recomputation manually...");
-            Odoo.Base.Logic.PartnerLogic.ComputeDisplayName(partnerRecordSet);
+            // Access property to trigger recomputation
+            Console.WriteLine("Accessing DisplayName (triggers recompute)...");
+            displayName = partner.DisplayName;
             
-            displayName = GetComputedDisplayName(env, partner.Id);
             Console.WriteLine();
-            Console.WriteLine($"After Name change: DisplayName = \"{displayName ?? "(null)"}\"");
+            Console.WriteLine($"After Name change: DisplayName = \"{displayName}\"");
             Console.WriteLine();
 
             // ═══════════════════════════════════════════════════════════════════
@@ -220,13 +209,12 @@ namespace Odoo.Examples
             
             partner.IsCompany = false;
             
-            // Simulate recomputation
-            Console.WriteLine("Triggering recomputation...");
-            Odoo.Base.Logic.PartnerLogic.ComputeDisplayName(partnerRecordSet);
+            // Access property to trigger recomputation
+            Console.WriteLine("Accessing DisplayName (triggers recompute)...");
+            displayName = partner.DisplayName;
             
-            displayName = GetComputedDisplayName(env, partner.Id);
             Console.WriteLine();
-            Console.WriteLine($"After IsCompany change: DisplayName = \"{displayName ?? "(null)"}\"");
+            Console.WriteLine($"After IsCompany change: DisplayName = \"{displayName}\"");
             Console.WriteLine("(No more '| Company' suffix since it's now an individual)");
             Console.WriteLine();
 
@@ -250,21 +238,18 @@ namespace Odoo.Examples
             Console.WriteLine();
 
             // Create batch recordset
-            var allPartners = env.GetRecords<IPartnerBase>("res.partner", 
+            var allPartners = env.GetRecords<IPartnerBase>("res.partner",
                 new[] { partner.Id, partner2.Id, partner3.Id, partner4.Id });
             
-            Console.WriteLine($"Computing DisplayName for {allPartners.Count} partners in a single batch...");
-            Console.WriteLine("This is efficient: one method call processes all records.");
+            Console.WriteLine($"Accessing DisplayName for {allPartners.Count} partners...");
+            Console.WriteLine("Note: Currently this triggers individual compute calls (lazy loading).");
+            Console.WriteLine("Future optimization: Prefetching/Batching for computed fields.");
             Console.WriteLine();
             
-            Odoo.Base.Logic.PartnerLogic.ComputeDisplayName(allPartners);
-            
-            Console.WriteLine();
-            Console.WriteLine("Results after batch computation:");
+            Console.WriteLine("Results:");
             foreach (var p in allPartners)
             {
-                var dn = GetComputedDisplayName(env, p.Id);
-                Console.WriteLine($"  [{p.Id}] {p.Name} -> \"{dn}\"");
+                Console.WriteLine($"  [{p.Id}] {p.Name} -> \"{p.DisplayName}\"");
             }
             Console.WriteLine();
 

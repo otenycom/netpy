@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using Odoo.Core.Modules;
 
 namespace Odoo.Core
 {
@@ -19,38 +20,15 @@ namespace Odoo.Core
         // Model Token -> (Record ID -> Set of Field Tokens needing recompute)
         private readonly Dictionary<int, Dictionary<int, HashSet<int>>> _toRecompute = new();
         
-        // Field dependency graph: (Model, Field) -> List of (dependent Model, dependent Field)
-        private readonly Dictionary<(int ModelToken, int FieldToken), List<(int ModelToken, int FieldToken)>> _dependencyGraph = new();
+        private readonly ModelRegistry? _registry;
 
-        /// <summary>
-        /// Register a dependency between fields.
-        /// When sourceField changes, dependentField should be recomputed.
-        /// </summary>
-        /// <param name="sourceModel">Model containing the source field</param>
-        /// <param name="sourceField">The field that triggers recomputation</param>
-        /// <param name="dependentModel">Model containing the dependent field</param>
-        /// <param name="dependentField">The field that needs recomputation</param>
-        public void RegisterDependency(
-            ModelHandle sourceModel, FieldHandle sourceField,
-            ModelHandle dependentModel, FieldHandle dependentField)
+        public ComputeTracker(ModelRegistry? registry = null)
         {
-            var key = (sourceModel.Token, sourceField.Token);
-            
-            if (!_dependencyGraph.TryGetValue(key, out var dependents))
-            {
-                dependents = new List<(int, int)>();
-                _dependencyGraph[key] = dependents;
-            }
-            
-            var dep = (dependentModel.Token, dependentField.Token);
-            if (!dependents.Contains(dep))
-            {
-                dependents.Add(dep);
-            }
+            _registry = registry;
         }
 
         /// <summary>
-        /// Called when a field has been modified. 
+        /// Called when a field has been modified.
         /// Marks all dependent computed fields for recomputation.
         /// </summary>
         /// <param name="model">Model that was modified</param>
@@ -86,16 +64,19 @@ namespace Odoo.Core
 
         private void ModifiedInternal(int modelToken, int recordId, int fieldToken)
         {
-            var key = (modelToken, fieldToken);
-            
-            if (!_dependencyGraph.TryGetValue(key, out var dependents))
+            if (_registry == null)
             {
-                return; // No computed fields depend on this field
+                return;
             }
+
+            // Console.WriteLine($"[ComputeTracker] Modified: Model={modelToken}, Record={recordId}, Field={fieldToken}");
+
+            var dependents = _registry.GetDependents(modelToken, fieldToken);
 
             // Mark all dependent fields for recomputation
             foreach (var (depModelToken, depFieldToken) in dependents)
             {
+                // Console.WriteLine($"[ComputeTracker]   -> Marking dependent: Model={depModelToken}, Field={depFieldToken}");
                 MarkToRecompute(depModelToken, recordId, depFieldToken);
             }
         }
@@ -232,23 +213,13 @@ namespace Odoo.Core
         /// </summary>
         public IEnumerable<(ModelHandle Model, FieldHandle Field)> GetDependents(ModelHandle model, FieldHandle field)
         {
-            var key = (model.Token, field.Token);
-            
-            if (_dependencyGraph.TryGetValue(key, out var dependents))
+            if (_registry == null)
             {
-                return dependents.Select(d => (new ModelHandle(d.ModelToken), new FieldHandle(d.FieldToken)));
+                return Enumerable.Empty<(ModelHandle, FieldHandle)>();
             }
 
-            return Enumerable.Empty<(ModelHandle, FieldHandle)>();
-        }
-
-        /// <summary>
-        /// Clear all registered dependencies.
-        /// Typically called during registry rebuild.
-        /// </summary>
-        public void ClearDependencies()
-        {
-            _dependencyGraph.Clear();
+            var dependents = _registry.GetDependents(model.Token, field.Token);
+            return dependents.Select(d => (new ModelHandle(d.ModelToken), new FieldHandle(d.FieldToken)));
         }
     }
 }

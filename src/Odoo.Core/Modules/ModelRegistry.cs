@@ -8,11 +8,17 @@ namespace Odoo.Core.Modules
     {
         private readonly Dictionary<string, ModelSchema> _models;
         private readonly Dictionary<string, Func<IEnvironment, int, IOdooRecord>> _factories;
+        
+        // Dependency graph: (ModelToken, FieldToken) -> List<(ModelToken, FieldToken)>
+        private readonly Dictionary<(int, int), List<(int, int)>> _dependencies;
 
-        public ModelRegistry(Dictionary<string, ModelSchema> models)
+        public ModelRegistry(
+            Dictionary<string, ModelSchema> models,
+            Dictionary<(int, int), List<(int, int)>>? dependencies = null)
         {
             _models = models;
             _factories = new Dictionary<string, Func<IEnvironment, int, IOdooRecord>>();
+            _dependencies = dependencies ?? new Dictionary<(int, int), List<(int, int)>>();
         }
 
         public ModelSchema? GetModel(string modelName)
@@ -38,6 +44,18 @@ namespace Odoo.Core.Modules
             }
             
             throw new KeyNotFoundException($"No record factory registered for model '{modelName}'. Ensure the source generator has run.");
+        }
+
+        /// <summary>
+        /// Get fields that depend on the specified field (and thus need recomputation).
+        /// </summary>
+        public IEnumerable<(int ModelToken, int FieldToken)> GetDependents(int modelToken, int fieldToken)
+        {
+            if (_dependencies.TryGetValue((modelToken, fieldToken), out var dependents))
+            {
+                return dependents;
+            }
+            return Enumerable.Empty<(int, int)>();
         }
     }
 }
