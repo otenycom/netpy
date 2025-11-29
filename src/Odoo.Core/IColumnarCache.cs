@@ -122,8 +122,8 @@ namespace Odoo.Core
         /// Get all models that have dirty records.
         /// Used by Flush() to determine which models need flushing.
         /// </summary>
-        /// <returns>Collection of model tokens with dirty records</returns>
-        IEnumerable<int> GetDirtyModels();
+        /// <returns>Collection of models with dirty records</returns>
+        IEnumerable<ModelHandle> GetDirtyModels();
 
         /// <summary>
         /// Check if there are any dirty records in the cache.

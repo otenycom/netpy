@@ -19,13 +19,15 @@ namespace Odoo.Core
     public class ColumnarValueCache : IColumnarCache
     {
         // Column storage: (Model, Field) -> ColumnStorage
-        private readonly Dictionary<(int ModelToken, int FieldToken), IColumnStorage> _columns =
-            new();
-
-        // Dirty tracking: (Model, Record ID) -> Set of Field Tokens
         private readonly Dictionary<
-            (int ModelToken, RecordId RecordId),
-            HashSet<int>
+            (ModelHandle Model, FieldHandle Field),
+            IColumnStorage
+        > _columns = new();
+
+        // Dirty tracking: (Model, Record ID) -> Set of Fields
+        private readonly Dictionary<
+            (ModelHandle Model, RecordId RecordId),
+            HashSet<FieldHandle>
         > _dirtyFields = new();
 
         // --- Batch Operations ---
@@ -36,7 +38,7 @@ namespace Odoo.Core
             FieldHandle field
         )
         {
-            var key = (model.Token, field.Token);
+            var key = (model, field);
 
             if (!_columns.TryGetValue(key, out var storage))
             {
@@ -58,7 +60,7 @@ namespace Odoo.Core
             if (ids.Length != values.Length)
                 throw new ArgumentException("IDs and values must have same length");
 
-            var key = (model.Token, field.Token);
+            var key = (model, field);
 
             if (!_columns.TryGetValue(key, out var storage))
             {
@@ -71,7 +73,7 @@ namespace Odoo.Core
             // Mark all as dirty
             for (int i = 0; i < ids.Length; i++)
             {
-                MarkDirtyInternal(model.Token, ids[i], field.Token);
+                MarkDirtyInternal(model, ids[i], field);
             }
         }
 
@@ -80,7 +82,7 @@ namespace Odoo.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T GetValue<T>(ModelHandle model, RecordId id, FieldHandle field)
         {
-            var key = (model.Token, field.Token);
+            var key = (model, field);
 
             if (!_columns.TryGetValue(key, out var storage))
                 return default(T)!;
@@ -91,7 +93,7 @@ namespace Odoo.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void SetValue<T>(ModelHandle model, RecordId id, FieldHandle field, T value)
         {
-            var key = (model.Token, field.Token);
+            var key = (model, field);
 
             if (!_columns.TryGetValue(key, out var storage))
             {
@@ -104,7 +106,7 @@ namespace Odoo.Core
 
         public bool HasValue(ModelHandle model, RecordId id, FieldHandle field)
         {
-            var key = (model.Token, field.Token);
+            var key = (model, field);
             return _columns.TryGetValue(key, out var storage) && storage.HasValue(id);
         }
 
@@ -116,7 +118,7 @@ namespace Odoo.Core
             // For now, ensure columns exist
             foreach (var field in fields)
             {
-                var key = (model.Token, field.Token);
+                var key = (model, field);
                 if (!_columns.ContainsKey(key))
                 {
                     // Would trigger load from database
@@ -129,30 +131,30 @@ namespace Odoo.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void MarkDirty(ModelHandle model, RecordId id, FieldHandle field)
         {
-            MarkDirtyInternal(model.Token, id, field.Token);
+            MarkDirtyInternal(model, id, field);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void MarkDirtyInternal(int modelToken, RecordId recordId, int fieldToken)
+        private void MarkDirtyInternal(ModelHandle model, RecordId recordId, FieldHandle field)
         {
-            var key = (modelToken, recordId);
+            var key = (model, recordId);
 
             if (!_dirtyFields.TryGetValue(key, out var fields))
             {
-                fields = new HashSet<int>();
+                fields = new HashSet<FieldHandle>();
                 _dirtyFields[key] = fields;
             }
 
-            fields.Add(fieldToken);
+            fields.Add(field);
         }
 
         public IEnumerable<FieldHandle> GetDirtyFields(ModelHandle model, RecordId id)
         {
-            var key = (model.Token, id);
+            var key = (model, id);
 
             if (_dirtyFields.TryGetValue(key, out var fields))
             {
-                return fields.Select(token => new FieldHandle(token)).ToList();
+                return fields.ToList();
             }
 
             return Enumerable.Empty<FieldHandle>();
@@ -160,21 +162,21 @@ namespace Odoo.Core
 
         public void ClearDirty(ModelHandle model, RecordId id)
         {
-            var key = (model.Token, id);
+            var key = (model, id);
             _dirtyFields.Remove(key);
         }
 
         public IEnumerable<RecordId> GetDirtyRecords(ModelHandle model)
         {
             return _dirtyFields
-                .Keys.Where(k => k.ModelToken == model.Token)
+                .Keys.Where(k => k.Model == model)
                 .Select(k => k.RecordId)
                 .Distinct();
         }
 
-        public IEnumerable<int> GetDirtyModels()
+        public IEnumerable<ModelHandle> GetDirtyModels()
         {
-            return _dirtyFields.Keys.Select(k => k.ModelToken).Distinct();
+            return _dirtyFields.Keys.Select(k => k.Model).Distinct();
         }
 
         public bool HasDirtyRecords => _dirtyFields.Count > 0;
@@ -195,16 +197,14 @@ namespace Odoo.Core
         public void ClearModel(ModelHandle model)
         {
             // Remove all columns for this model
-            var keysToRemove = _columns.Keys.Where(k => k.ModelToken == model.Token).ToList();
+            var keysToRemove = _columns.Keys.Where(k => k.Model == model).ToList();
             foreach (var key in keysToRemove)
             {
                 _columns.Remove(key);
             }
 
             // Clear dirty tracking for this model
-            var dirtyKeysToRemove = _dirtyFields
-                .Keys.Where(k => k.ModelToken == model.Token)
-                .ToList();
+            var dirtyKeysToRemove = _dirtyFields.Keys.Where(k => k.Model == model).ToList();
             foreach (var key in dirtyKeysToRemove)
             {
                 _dirtyFields.Remove(key);
@@ -226,7 +226,7 @@ namespace Odoo.Core
             if (values.Count == 0)
                 return;
 
-            var key = (model.Token, field.Token);
+            var key = (model, field);
 
             if (!_columns.TryGetValue(key, out var storage))
             {

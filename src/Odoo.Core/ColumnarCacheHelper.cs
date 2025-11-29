@@ -22,7 +22,8 @@ namespace Odoo.Core
             this IColumnarCache cache,
             string modelName,
             ModelHandle modelToken,
-            Dictionary<int, Dictionary<string, object?>> records)
+            Dictionary<RecordId, Dictionary<string, object?>> records
+        )
         {
             if (records.Count == 0)
                 return;
@@ -44,7 +45,7 @@ namespace Odoo.Core
                 var fieldToken = new FieldHandle(GetFieldToken(modelName, fieldName));
 
                 // Collect all values for this field
-                var valuesByType = new Dictionary<Type, Dictionary<int, object>>();
+                var valuesByType = new Dictionary<Type, Dictionary<RecordId, object>>();
 
                 foreach (var (recordId, fieldValues) in records)
                 {
@@ -53,7 +54,7 @@ namespace Odoo.Core
                         var valueType = value.GetType();
                         if (!valuesByType.ContainsKey(valueType))
                         {
-                            valuesByType[valueType] = new Dictionary<int, object>();
+                            valuesByType[valueType] = new Dictionary<RecordId, object>();
                         }
                         valuesByType[valueType][recordId] = value;
                     }
@@ -71,27 +72,29 @@ namespace Odoo.Core
             IColumnarCache cache,
             ModelHandle modelToken,
             FieldHandle fieldToken,
-            Dictionary<int, object> values)
+            Dictionary<RecordId, object> values
+        )
         {
             if (values.Count == 0)
                 return;
 
             // Get the value type from the first value
             var valueType = values.Values.First().GetType();
-            
+
             // Use reflection to call BulkLoad<T> with the correct type
             var method = typeof(IColumnarCache).GetMethod(nameof(IColumnarCache.BulkLoad));
             var genericMethod = method!.MakeGenericMethod(valueType);
-            
-            // Convert Dictionary<int, object> to Dictionary<int, T>
-            var targetDictType = typeof(Dictionary<,>).MakeGenericType(typeof(int), valueType);
-            var targetDict = Activator.CreateInstance(targetDictType) as System.Collections.IDictionary;
-            
+
+            // Convert Dictionary<RecordId, object> to Dictionary<RecordId, T>
+            var targetDictType = typeof(Dictionary<,>).MakeGenericType(typeof(RecordId), valueType);
+            var targetDict =
+                Activator.CreateInstance(targetDictType) as System.Collections.IDictionary;
+
             foreach (var (id, value) in values)
             {
                 targetDict![id] = value;
             }
-            
+
             genericMethod.Invoke(cache, new object[] { modelToken, fieldToken, targetDict! });
         }
 
@@ -110,18 +113,19 @@ namespace Odoo.Core
             this IColumnarCache cache,
             string modelName,
             ModelHandle modelToken,
-            int recordId)
+            RecordId recordId
+        )
         {
             var dirtyHandles = cache.GetDirtyFields(modelToken, recordId);
             var fieldNames = new List<string>();
-            
+
             foreach (var handle in dirtyHandles)
             {
                 // In a real scenario, you'd look up the field name from the handle
                 // For this helper, we'll just return the token number as a string
                 fieldNames.Add($"field_{handle.Token}");
             }
-            
+
             return fieldNames;
         }
     }

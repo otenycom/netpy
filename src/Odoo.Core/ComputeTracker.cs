@@ -17,8 +17,11 @@ namespace Odoo.Core
     /// </summary>
     public class ComputeTracker
     {
-        // Model Token -> (Record ID -> Set of Field Tokens needing recompute)
-        private readonly Dictionary<int, Dictionary<RecordId, HashSet<int>>> _toRecompute = new();
+        // Model -> (Record ID -> Set of Fields needing recompute)
+        private readonly Dictionary<
+            ModelHandle,
+            Dictionary<RecordId, HashSet<FieldHandle>>
+        > _toRecompute = new();
 
         private readonly ModelRegistry? _registry;
 
@@ -37,7 +40,22 @@ namespace Odoo.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Modified(ModelHandle model, RecordId recordId, FieldHandle field)
         {
-            ModifiedInternal(model.Token, recordId, field.Token);
+            if (_registry == null)
+            {
+                return;
+            }
+
+            var dependents = _registry.GetDependents(model.Token, field.Token);
+
+            // Mark all dependent fields for recomputation
+            foreach (var (depModelToken, depFieldToken) in dependents)
+            {
+                MarkToRecompute(
+                    new ModelHandle(depModelToken),
+                    recordId,
+                    new FieldHandle(depFieldToken)
+                );
+            }
         }
 
         /// <summary>
@@ -47,7 +65,7 @@ namespace Odoo.Core
         {
             foreach (var field in fields)
             {
-                ModifiedInternal(model.Token, recordId, field.Token);
+                Modified(model, recordId, field);
             }
         }
 
@@ -58,26 +76,7 @@ namespace Odoo.Core
         {
             foreach (var recordId in recordIds)
             {
-                ModifiedInternal(model.Token, recordId, field.Token);
-            }
-        }
-
-        private void ModifiedInternal(int modelToken, RecordId recordId, int fieldToken)
-        {
-            if (_registry == null)
-            {
-                return;
-            }
-
-            // Console.WriteLine($"[ComputeTracker] Modified: Model={modelToken}, Record={recordId}, Field={fieldToken}");
-
-            var dependents = _registry.GetDependents(modelToken, fieldToken);
-
-            // Mark all dependent fields for recomputation
-            foreach (var (depModelToken, depFieldToken) in dependents)
-            {
-                // Console.WriteLine($"[ComputeTracker]   -> Marking dependent: Model={depModelToken}, Field={depFieldToken}");
-                MarkToRecompute(depModelToken, recordId, depFieldToken);
+                Modified(model, recordId, field);
             }
         }
 
@@ -87,24 +86,19 @@ namespace Odoo.Core
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void MarkToRecompute(ModelHandle model, RecordId recordId, FieldHandle field)
         {
-            MarkToRecompute(model.Token, recordId, field.Token);
-        }
-
-        private void MarkToRecompute(int modelToken, RecordId recordId, int fieldToken)
-        {
-            if (!_toRecompute.TryGetValue(modelToken, out var recordFields))
+            if (!_toRecompute.TryGetValue(model, out var recordFields))
             {
-                recordFields = new Dictionary<RecordId, HashSet<int>>();
-                _toRecompute[modelToken] = recordFields;
+                recordFields = new Dictionary<RecordId, HashSet<FieldHandle>>();
+                _toRecompute[model] = recordFields;
             }
 
             if (!recordFields.TryGetValue(recordId, out var fields))
             {
-                fields = new HashSet<int>();
+                fields = new HashSet<FieldHandle>();
                 recordFields[recordId] = fields;
             }
 
-            fields.Add(fieldToken);
+            fields.Add(field);
         }
 
         /// <summary>
@@ -112,9 +106,9 @@ namespace Odoo.Core
         /// </summary>
         public bool NeedsRecompute(ModelHandle model, RecordId recordId, FieldHandle field)
         {
-            return _toRecompute.TryGetValue(model.Token, out var recordFields)
+            return _toRecompute.TryGetValue(model, out var recordFields)
                 && recordFields.TryGetValue(recordId, out var fields)
-                && fields.Contains(field.Token);
+                && fields.Contains(field);
         }
 
         /// <summary>
@@ -122,14 +116,14 @@ namespace Odoo.Core
         /// </summary>
         public IEnumerable<RecordId> GetRecordsToRecompute(ModelHandle model, FieldHandle field)
         {
-            if (!_toRecompute.TryGetValue(model.Token, out var recordFields))
+            if (!_toRecompute.TryGetValue(model, out var recordFields))
             {
                 yield break;
             }
 
             foreach (var (recordId, fields) in recordFields)
             {
-                if (fields.Contains(field.Token))
+                if (fields.Contains(field))
                 {
                     yield return recordId;
                 }
@@ -142,11 +136,11 @@ namespace Odoo.Core
         public IEnumerable<FieldHandle> GetFieldsToRecompute(ModelHandle model, RecordId recordId)
         {
             if (
-                _toRecompute.TryGetValue(model.Token, out var recordFields)
+                _toRecompute.TryGetValue(model, out var recordFields)
                 && recordFields.TryGetValue(recordId, out var fields)
             )
             {
-                return fields.Select(t => new FieldHandle(t));
+                return fields;
             }
 
             return Enumerable.Empty<FieldHandle>();
@@ -158,11 +152,11 @@ namespace Odoo.Core
         public void ClearRecompute(ModelHandle model, RecordId recordId, FieldHandle field)
         {
             if (
-                _toRecompute.TryGetValue(model.Token, out var recordFields)
+                _toRecompute.TryGetValue(model, out var recordFields)
                 && recordFields.TryGetValue(recordId, out var fields)
             )
             {
-                fields.Remove(field.Token);
+                fields.Remove(field);
 
                 if (fields.Count == 0)
                 {
@@ -176,7 +170,7 @@ namespace Odoo.Core
         /// </summary>
         public void ClearRecord(ModelHandle model, RecordId recordId)
         {
-            if (_toRecompute.TryGetValue(model.Token, out var recordFields))
+            if (_toRecompute.TryGetValue(model, out var recordFields))
             {
                 recordFields.Remove(recordId);
             }
@@ -199,18 +193,18 @@ namespace Odoo.Core
         /// Get all pending recomputation grouped by model.
         /// </summary>
         public IEnumerable<(
-            int ModelToken,
+            ModelHandle Model,
             RecordId RecordId,
-            int FieldToken
+            FieldHandle Field
         )> GetAllPendingRecompute()
         {
-            foreach (var (modelToken, recordFields) in _toRecompute)
+            foreach (var (model, recordFields) in _toRecompute)
             {
-                foreach (var (recordId, fieldTokens) in recordFields)
+                foreach (var (recordId, fields) in recordFields)
                 {
-                    foreach (var fieldToken in fieldTokens)
+                    foreach (var field in fields)
                     {
-                        yield return (modelToken, recordId, fieldToken);
+                        yield return (model, recordId, field);
                     }
                 }
             }
