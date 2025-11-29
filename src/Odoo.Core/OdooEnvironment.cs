@@ -22,6 +22,12 @@ namespace Odoo.Core
         private readonly ModelRegistry? _modelRegistry;
 
         /// <summary>
+        /// Handler registry: model name → values handler instance.
+        /// Used for runtime dispatch of write/create operations.
+        /// </summary>
+        private readonly Dictionary<string, IRecordValuesHandler> _valuesHandlers = new();
+
+        /// <summary>
         /// Identity Map: Caches record instances to ensure reference equality.
         /// Key is (ModelHandle, RecordId), Value is the unified wrapper instance.
         /// </summary>
@@ -88,6 +94,114 @@ namespace Odoo.Core
         public ModelSchema? GetModelSchema(string modelName)
         {
             return _modelRegistry?.GetModel(modelName);
+        }
+
+        // --- Values Handler Registry (for IModel interface support) ---
+
+        /// <summary>
+        /// Register a values handler for a model.
+        /// Called by generated ModuleRegistrar to enable runtime dispatch.
+        /// </summary>
+        /// <param name="modelName">The model name (e.g., "res.partner").</param>
+        /// <param name="handler">The handler instance.</param>
+        public void RegisterValuesHandler(string modelName, IRecordValuesHandler handler)
+        {
+            _valuesHandlers[modelName] = handler;
+        }
+
+        /// <summary>
+        /// Get the values handler for a model.
+        /// Used by BaseModel.Write_Base and BaseModel.Create_Base for runtime dispatch.
+        /// </summary>
+        /// <param name="modelName">The model name (e.g., "res.partner").</param>
+        /// <returns>The registered handler.</returns>
+        /// <exception cref="InvalidOperationException">If no handler is registered.</exception>
+        public IRecordValuesHandler GetValuesHandler(string modelName)
+        {
+            if (_valuesHandlers.TryGetValue(modelName, out var handler))
+                return handler;
+            throw new InvalidOperationException(
+                $"No values handler registered for model '{modelName}'. "
+                    + "Ensure the source generator has run and the handler is registered."
+            );
+        }
+
+        /// <summary>
+        /// Get the values handler for a model by token.
+        /// Used by BaseModel.Write_Base for runtime dispatch.
+        /// </summary>
+        /// <param name="model">The model handle (token).</param>
+        /// <returns>The registered handler.</returns>
+        /// <exception cref="InvalidOperationException">If no handler is registered.</exception>
+        public IRecordValuesHandler GetValuesHandler(ModelHandle model)
+        {
+            var modelName = GetModelName(model);
+            return GetValuesHandler(modelName);
+        }
+
+        /// <summary>
+        /// Get the model name from a model token.
+        /// </summary>
+        /// <param name="model">The model handle (token).</param>
+        /// <returns>The model name (e.g., "res.partner").</returns>
+        /// <exception cref="InvalidOperationException">If model registry is not initialized.</exception>
+        /// <exception cref="KeyNotFoundException">If model not found.</exception>
+        public string GetModelName(ModelHandle model)
+        {
+            if (_modelRegistry == null)
+                throw new InvalidOperationException("Model registry is not initialized");
+
+            foreach (var schema in _modelRegistry.GetAllModels())
+            {
+                if (schema.Token == model)
+                    return schema.ModelName;
+            }
+
+            throw new KeyNotFoundException($"No model found with token {model.Token}");
+        }
+
+        /// <summary>
+        /// Get the model token for a model name.
+        /// </summary>
+        /// <param name="modelName">The model name (e.g., "res.partner").</param>
+        /// <returns>The model handle.</returns>
+        /// <exception cref="InvalidOperationException">If model registry is not initialized.</exception>
+        /// <exception cref="KeyNotFoundException">If model not found.</exception>
+        public ModelHandle GetModelToken(string modelName)
+        {
+            if (_modelRegistry == null)
+                throw new InvalidOperationException("Model registry is not initialized");
+
+            var schema = _modelRegistry.GetModel(modelName);
+            if (schema == null)
+                throw new KeyNotFoundException($"Model '{modelName}' not found");
+
+            return schema.Token;
+        }
+
+        /// <summary>
+        /// Create a record instance using the registered factory.
+        /// Used by BaseModel.Create_Base.
+        /// </summary>
+        /// <param name="modelToken">The model handle.</param>
+        /// <param name="id">The record ID.</param>
+        /// <returns>The created record instance.</returns>
+        public IOdooRecord CreateRecord(ModelHandle modelToken, RecordId id)
+        {
+            if (_modelRegistry == null)
+                throw new InvalidOperationException("Model registry is not initialized");
+
+            // Find the model name from token
+            foreach (var schema in _modelRegistry.GetAllModels())
+            {
+                if (schema.Token == modelToken)
+                {
+                    var factory = _modelRegistry.GetRecordFactory(schema.ModelName);
+                    return factory(this, id);
+                }
+            }
+
+            throw new KeyNotFoundException($"No model found with token {modelToken.Token}");
         }
 
         /// <summary>

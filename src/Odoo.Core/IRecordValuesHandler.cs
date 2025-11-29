@@ -1,14 +1,62 @@
 namespace Odoo.Core
 {
     /// <summary>
+    /// Non-generic base interface for values handlers.
+    /// Enables runtime dispatch without knowing the concrete values type.
+    ///
+    /// This interface is used by BaseModel.Write_Base and BaseModel.Create_Base
+    /// to apply values generically, without needing model-specific code.
+    /// </summary>
+    public interface IRecordValuesHandler
+    {
+        /// <summary>
+        /// Apply values to cache for a single record.
+        /// </summary>
+        void ApplyToCache(
+            IRecordValues values,
+            IColumnarCache cache,
+            ModelHandle model,
+            RecordId recordId
+        );
+
+        /// <summary>
+        /// Mark set fields as dirty.
+        /// </summary>
+        void MarkDirty(
+            IRecordValues values,
+            IColumnarCache cache,
+            ModelHandle model,
+            RecordId recordId
+        );
+
+        /// <summary>
+        /// Trigger field modification events for computed field recomputation.
+        /// </summary>
+        void TriggerModified(
+            IRecordValues values,
+            OdooEnvironment env,
+            ModelHandle model,
+            RecordId recordId
+        );
+
+        /// <summary>
+        /// Convert dictionary to typed values.
+        /// </summary>
+        IRecordValues FromDictionary(Dictionary<string, object?> dict);
+    }
+
+    /// <summary>
     /// Handler interface for processing typed values without reflection.
     /// Generated for each model to enable fast field iteration.
     ///
     /// The handler converts typed values to cache operations using generated code
     /// with direct IsSet checks - no reflection, no string parsing.
+    ///
+    /// Generated handlers implement both IRecordValuesHandler (non-generic)
+    /// and IRecordValuesHandler&lt;TValues&gt; (typed) for maximum flexibility.
     /// </summary>
     /// <typeparam name="TValues">The values type to handle</typeparam>
-    public interface IRecordValuesHandler<TValues>
+    public interface IRecordValuesHandler<TValues> : IRecordValuesHandler
         where TValues : IRecordValues
     {
         /// <summary>

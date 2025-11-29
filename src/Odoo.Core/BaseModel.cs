@@ -1,0 +1,77 @@
+using Odoo.Core.Pipeline;
+
+namespace Odoo.Core
+{
+    /// <summary>
+    /// Base implementations for ORM methods (write, create).
+    /// Contains the single source of truth for these operations.
+    /// Methods are registered in the pipeline system and can be overridden by addons.
+    /// </summary>
+    public static class BaseModel
+    {
+        /// <summary>
+        /// Base write implementation - replaces per-model generated Write methods.
+        /// Registered as the base handler in the "write" pipeline.
+        /// <para>
+        /// This method:
+        /// 1. Gets the values handler for the model
+        /// 2. Applies values to the columnar cache
+        /// 3. Marks fields as dirty for flush
+        /// 4. Triggers Modified for computed field recomputation
+        /// </para>
+        /// </summary>
+        /// <param name="handle">The record handle (env, id, model token)</param>
+        /// <param name="vals">The values to write</param>
+        [OdooLogic("*", "write")] // "*" means applies to all models as base
+        public static void Write_Base(RecordHandle handle, IRecordValues vals)
+        {
+            if (handle.Env is not OdooEnvironment env)
+                throw new System.InvalidOperationException("Write_Base requires OdooEnvironment");
+
+            var handler = env.GetValuesHandler(handle.Model);
+            handler.ApplyToCache(vals, env.Columns, handle.Model, handle.Id);
+            handler.MarkDirty(vals, env.Columns, handle.Model, handle.Id);
+            handler.TriggerModified(vals, env, handle.Model, handle.Id);
+        }
+
+        /// <summary>
+        /// Base create implementation - replaces per-model generated Create methods.
+        /// Registered as the base handler in the "create" pipeline.
+        /// <para>
+        /// This method:
+        /// 1. Generates a new ID
+        /// 2. Gets the values handler for the model
+        /// 3. Applies values to the columnar cache
+        /// 4. Creates a record wrapper using the factory
+        /// 5. Registers in identity map
+        /// 6. Marks fields as dirty and triggers Modified
+        /// 7. Returns the new record
+        /// </para>
+        /// </summary>
+        /// <param name="env">The environment</param>
+        /// <param name="modelName">The model name (e.g., "res.partner")</param>
+        /// <param name="vals">The initial values</param>
+        /// <returns>The newly created record</returns>
+        [OdooLogic("*", "create")]
+        public static IOdooRecord Create_Base(
+            OdooEnvironment env,
+            string modelName,
+            IRecordValues vals
+        )
+        {
+            var modelToken = env.GetModelToken(modelName);
+            var newId = env.IdGenerator.NextId(modelName);
+
+            var handler = env.GetValuesHandler(modelName);
+            handler.ApplyToCache(vals, env.Columns, modelToken, newId);
+
+            var record = env.CreateRecord(modelToken, newId);
+            env.RegisterInIdentityMap(modelToken, newId, record);
+
+            handler.MarkDirty(vals, env.Columns, modelToken, newId);
+            handler.TriggerModified(vals, env, modelToken, newId);
+
+            return record;
+        }
+    }
+}

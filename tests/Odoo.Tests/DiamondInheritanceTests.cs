@@ -287,4 +287,86 @@ public class DiamondInheritanceTests
     }
 
     #endregion
+
+    #region IModel Interface Tests
+
+    [Fact]
+    public void IModel_PartnerImplementsIModel()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+
+        // Act - Create a partner
+        var partner = env.Create(new ResPartnerValues { Name = "Test Partner" });
+
+        // Assert - Partner should implement IModel
+        Assert.IsAssignableFrom<IModel>(partner);
+    }
+
+    [Fact]
+    public void IModel_ModelNameProperty_ReturnsCorrectValue()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner = env.Create(new ResPartnerValues { Name = "Test" });
+
+        // Act
+        var model = (IModel)partner;
+
+        // Assert
+        Assert.Equal("res.partner", model.ModelName);
+    }
+
+    [Fact]
+    public void IModel_WriteWithValues_UpdatesRecord()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner = env.Create(new ResPartnerValues { Name = "Initial" });
+
+        // Act - Use IModel.Write with typed values
+        var model = (IModel)partner;
+        var result = model.Write(new ResPartnerValues { Name = "Updated", IsCustomer = true });
+
+        // Assert
+        Assert.True(result);
+        Assert.Equal("Updated", partner.Name);
+        Assert.True(((IPartnerSaleExtension)partner).IsCustomer);
+    }
+
+    [Fact]
+    public void IModel_WriteWithDictionary_UpdatesRecord()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner = env.Create(new ResPartnerValues { Name = "Initial" });
+
+        // Act - Use IModel.Write with dictionary (Python-style)
+        var model = (IModel)partner;
+        var result = model.Write(
+            new Dictionary<string, object?> { { "name", "Dict Updated" }, { "is_supplier", true } }
+        );
+
+        // Assert
+        Assert.True(result);
+        Assert.Equal("Dict Updated", partner.Name);
+        Assert.True(((IPartnerPurchaseExtension)partner).IsSupplier);
+    }
+
+    [Fact]
+    public void IModel_Write_TriggersComputedFieldRecomputation()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner = env.Create(new ResPartnerValues { Name = "Original" });
+        var model = (IModel)partner;
+
+        // Act - Write IsSupplier which triggers DisplayName recomputation
+        model.Write(new ResPartnerValues { IsSupplier = true });
+
+        // Assert - DisplayName should now include "| Supplier"
+        Assert.Contains("| Supplier", partner.DisplayName);
+    }
+
+    #endregion
 }

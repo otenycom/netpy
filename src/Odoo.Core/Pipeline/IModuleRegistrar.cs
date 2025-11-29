@@ -17,5 +17,10 @@ namespace Odoo.Core.Pipeline
         /// Register record factories for dynamically creating record instances.
         /// </summary>
         void RegisterFactories(ModelRegistry modelRegistry);
+
+        /// <summary>
+        /// Register values handlers for IModel.Write/Create support.
+        /// </summary>
+        void RegisterValuesHandlers(OdooEnvironment env);
     }
 }

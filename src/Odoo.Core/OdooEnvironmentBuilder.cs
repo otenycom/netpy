@@ -136,7 +136,16 @@ namespace Odoo.Core
             pipelineRegistry.CompileAll();
 
             // 6. Create environment
-            return new OdooEnvironment(_userId, _cache, modelRegistry, pipelineRegistry);
+            var env = new OdooEnvironment(_userId, _cache, modelRegistry, pipelineRegistry);
+
+            // 7. Register values handlers for IModel support
+            // The last registrar has the unified handlers that see all extensions
+            if (registrars.Count > 0)
+            {
+                registrars.Last().RegisterValuesHandlers(env);
+            }
+
+            return env;
         }
 
         /// <summary>

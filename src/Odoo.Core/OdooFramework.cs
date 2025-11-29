@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Odoo.Core
@@ -196,6 +197,85 @@ namespace Odoo.Core
         /// The environment context.
         /// </summary>
         IEnvironment Env { get; }
+    }
+
+    /// <summary>
+    /// Base interface for all Odoo model records.
+    /// Provides ORM methods like write, search, browse.
+    ///
+    /// This mirrors Odoo's models.Model abstract class.
+    /// Model interfaces should inherit from IModel:
+    ///
+    ///     [OdooModel("res.partner")]
+    ///     public interface IPartnerBase : IModel { ... }
+    /// </summary>
+    public interface IModel : IOdooRecord
+    {
+        /// <summary>
+        /// The technical model name (e.g., "res.partner").
+        /// </summary>
+        string ModelName { get; }
+
+        /// <summary>
+        /// Write values to this record.
+        /// Calls the write pipeline for extensibility.
+        /// </summary>
+        /// <param name="vals">Values to write</param>
+        /// <returns>True if successful</returns>
+        bool Write(IRecordValues vals);
+
+        /// <summary>
+        /// Write values using a dictionary (Python interop).
+        /// </summary>
+        bool Write(IDictionary<string, object?> vals);
+    }
+
+    /// <summary>
+    /// Extension methods for IModel providing Search and Browse.
+    /// These return typed RecordSets for the specific model.
+    /// </summary>
+    public static class ModelExtensions
+    {
+        /// <summary>
+        /// Search for records matching a domain.
+        /// Returns a recordset of the same type.
+        /// </summary>
+        /// <example>
+        /// var customers = partner.Search(new SearchDomain().Where("is_customer", "=", true));
+        /// </example>
+        public static RecordSet<T> Search<T>(this T self, SearchDomain domain)
+            where T : class, IModel
+        {
+            // Placeholder - actual implementation will query database
+            // For now, return empty recordset
+            return self.Env.CreateRecordSet<T>(Array.Empty<RecordId>());
+        }
+
+        /// <summary>
+        /// Browse records by IDs.
+        /// Returns a recordset with the specified IDs.
+        /// </summary>
+        /// <example>
+        /// var partners = partner.Browse(1, 2, 3);
+        /// </example>
+        public static RecordSet<T> Browse<T>(this T self, params long[] ids)
+            where T : class, IModel
+        {
+            var recordIds = ids.Select(id => new RecordId(id)).ToArray();
+            return self.Env.CreateRecordSet<T>(recordIds);
+        }
+
+        /// <summary>
+        /// Browse a single record by ID.
+        /// Returns a single record instance.
+        /// </summary>
+        public static T BrowseSingle<T>(this T self, long id)
+            where T : class, IModel
+        {
+            var recordSet = self.Browse(id);
+            return recordSet.FirstOrDefault
+                ?? throw new InvalidOperationException($"Record {id} not found");
+        }
     }
 
     /// <summary>
