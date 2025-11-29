@@ -1,12 +1,7 @@
 using System;
-using System.Linq;
 using Odoo.Base.Models;
 using Odoo.Core;
-using Odoo.Core.Modules;
-using Odoo.Core.Pipeline;
 using Odoo.Generated.OdooDemo;
-using Odoo.Sale.Models;
-using ModelSchema = Odoo.Generated.OdooDemo.ModelSchema;
 
 namespace Odoo.Examples
 {
@@ -22,6 +17,13 @@ namespace Odoo.Examples
     /// </summary>
     public class ComputedFieldDemo
     {
+        /// <summary>
+        /// Creates a fully configured OdooEnvironment using the builder.
+        /// The builder auto-discovers addons from loaded assemblies.
+        /// </summary>
+        private static OdooEnvironment CreateConfiguredEnvironment() =>
+            new OdooEnvironmentBuilder().WithUserId(1).Build();
+
         public static void RunDemo()
         {
             Console.WriteLine("=== Computed Fields Demo (Odoo-Aligned) ===\n");
@@ -30,49 +32,8 @@ namespace Odoo.Examples
             Console.WriteLine("  - Changes to dependencies trigger recomputation");
             Console.WriteLine("  - Batch compute pattern matches Odoo's `for record in self:`\n");
 
-            // Create environment with registry
-            var registryBuilder = new RegistryBuilder();
-            var pipelineRegistry = new PipelineRegistry();
-
-            var assemblies = new[]
-            {
-                typeof(IPartnerBase).Assembly, // Odoo.Base
-                typeof(IPartnerSaleExtension).Assembly, // Odoo.Sale
-                typeof(ComputedFieldDemo).Assembly, // Demo project
-            };
-
-            foreach (var assembly in assemblies)
-            {
-                registryBuilder.ScanAssembly(assembly);
-            }
-
-            var modelRegistry = registryBuilder.Build();
-
-            foreach (var assembly in assemblies)
-            {
-                var registrars = assembly
-                    .GetTypes()
-                    .Where(t =>
-                        typeof(IModuleRegistrar).IsAssignableFrom(t)
-                        && !t.IsInterface
-                        && !t.IsAbstract
-                    );
-
-                foreach (var registrarType in registrars)
-                {
-                    var registrar = (IModuleRegistrar)Activator.CreateInstance(registrarType)!;
-                    registrar.RegisterPipelines(pipelineRegistry);
-                    registrar.RegisterFactories(modelRegistry);
-                }
-            }
-
-            pipelineRegistry.CompileAll();
-
-            var env = new OdooEnvironment(
-                userId: 1,
-                modelRegistry: modelRegistry,
-                pipelineRegistry: pipelineRegistry
-            );
+            // Create environment - builder auto-discovers all addons
+            var env = CreateConfiguredEnvironment();
 
             // ═══════════════════════════════════════════════════════════════════
             // 1. COMPUTED FIELD DEFINITION
@@ -326,24 +287,6 @@ namespace Odoo.Examples
             Console.WriteLine("  ✓ Type-safe with full IntelliSense support");
             Console.WriteLine();
             Console.WriteLine("=== Demo Complete ===");
-        }
-
-        /// <summary>
-        /// Helper to read the computed DisplayName from cache.
-        /// Uses the core StableHash utility.
-        /// </summary>
-        private static string? GetComputedDisplayName(OdooEnvironment env, int recordId)
-        {
-            const string modelName = "res.partner";
-            const string fieldName = "display_name";
-            var modelToken = StableHash.GetStableHashCode(modelName);
-            var fieldToken = StableHash.GetStableHashCode($"{modelName}.{fieldName}");
-
-            return env.Columns.GetValue<string>(
-                new ModelHandle(modelToken),
-                recordId,
-                new FieldHandle(fieldToken)
-            );
         }
     }
 }

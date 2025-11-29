@@ -1398,11 +1398,11 @@ namespace Odoo.SourceGenerator
             sb.AppendLine();
             sb.AppendLine("using Odoo.Core;");
 
-            // Add using for base namespaces
+            // Add using for base namespaces (excluding Odoo.Core which is already added)
             foreach (var baseInterface in interfaceSymbol.Interfaces)
             {
                 var baseNs = baseInterface.ContainingNamespace?.ToDisplayString();
-                if (!string.IsNullOrEmpty(baseNs) && baseNs != ns)
+                if (!string.IsNullOrEmpty(baseNs) && baseNs != ns && baseNs != "Odoo.Core")
                 {
                     sb.AppendLine($"using {baseNs};");
                 }
@@ -1428,15 +1428,29 @@ namespace Odoo.SourceGenerator
             sb.AppendLine($"    public interface {valuesInterfaceName} : {inheritanceList}");
             sb.AppendLine("    {");
 
+            // Collect property names from ALL ancestor interfaces to detect hiding
+            // This needs to be recursive because we generate Values interfaces that inherit
+            // from base Values interfaces (e.g., IPartnerValues : IPartnerSaleExtensionValues : IPartnerBaseValues)
+            var basePropertyNames = new HashSet<string>();
+            CollectAllBaseWritableProperties(
+                interfaceSymbol,
+                basePropertyNames,
+                new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default)
+            );
+
             // Generate RecordValueField<T> properties for fields defined on THIS interface
             foreach (var prop in directProperties)
             {
                 var propertyType = prop.Type.ToDisplayString();
                 var fieldName = GetOdooFieldName(prop);
 
+                // Use 'new' keyword if property hides a base interface property
+                var needsNew = basePropertyNames.Contains(prop.Name);
+                var newKeyword = needsNew ? "new " : "";
+
                 sb.AppendLine($"        /// <summary>Field: {fieldName}</summary>");
                 sb.AppendLine(
-                    $"        RecordValueField<{propertyType}> {prop.Name} {{ get; set; }}"
+                    $"        {newKeyword}RecordValueField<{propertyType}> {prop.Name} {{ get; set; }}"
                 );
                 sb.AppendLine();
             }
@@ -1445,6 +1459,44 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("}");
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Recursively collect all writable property names from ancestor interfaces.
+        /// This is needed because generated Values interfaces inherit from base Values interfaces,
+        /// and we need to use the 'new' keyword when a property hides an inherited one.
+        /// </summary>
+        private void CollectAllBaseWritableProperties(
+            INamedTypeSymbol interfaceSymbol,
+            HashSet<string> propertyNames,
+            HashSet<INamedTypeSymbol> visited
+        )
+        {
+            foreach (var baseInterface in interfaceSymbol.Interfaces)
+            {
+                if (!visited.Add(baseInterface))
+                    continue;
+
+                // Check if base interface has [OdooModel] attribute (is it a model interface?)
+                var hasOdooModel = baseInterface
+                    .GetAttributes()
+                    .Any(a => a.AttributeClass?.Name == "OdooModelAttribute");
+
+                if (hasOdooModel)
+                {
+                    // Collect writable properties from this interface
+                    foreach (var baseProp in baseInterface.GetMembers().OfType<IPropertySymbol>())
+                    {
+                        if (baseProp.Name != "Id" && baseProp.Name != "Env" && !baseProp.IsReadOnly)
+                        {
+                            propertyNames.Add(baseProp.Name);
+                        }
+                    }
+
+                    // Recurse into that interface's base interfaces
+                    CollectAllBaseWritableProperties(baseInterface, propertyNames, visited);
+                }
+            }
         }
 
         /// <summary>
@@ -1729,16 +1781,16 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("using Odoo.Core;");
 
-            // Add using statements for all interface namespaces
+            // Add using statements for all interface namespaces (excluding Odoo.Core which is already added)
             var allNamespaces = new HashSet<string>();
             foreach (var model in models)
             {
                 foreach (var iface in model.Interfaces)
                 {
                     var ns = iface.ContainingNamespace?.ToDisplayString();
-                    if (!string.IsNullOrEmpty(ns))
+                    if (!string.IsNullOrEmpty(ns) && ns != "Odoo.Core")
                     {
-                        allNamespaces.Add(ns);
+                        allNamespaces.Add(ns!);
                     }
                 }
             }
@@ -2107,16 +2159,16 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
 
-            // Add using statements for all interface namespaces
+            // Add using statements for all interface namespaces (excluding Odoo.Core which is already added)
             var allNamespaces = new HashSet<string>();
             foreach (var model in models)
             {
                 foreach (var iface in model.Interfaces)
                 {
                     var ns = iface.ContainingNamespace?.ToDisplayString();
-                    if (!string.IsNullOrEmpty(ns))
+                    if (!string.IsNullOrEmpty(ns) && ns != "Odoo.Core")
                     {
-                        allNamespaces.Add(ns);
+                        allNamespaces.Add(ns!);
                     }
                 }
             }
