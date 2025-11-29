@@ -1,15 +1,20 @@
 using System;
 using System.Collections.Generic;
+using Odoo.Base.Models;
 using Odoo.Core;
 using Odoo.Core.Pipeline;
-using Odoo.Base.Models;
 using Odoo.Sale.Models;
 
 namespace Odoo.Sale.Logic
 {
     /// <summary>
     /// Sale module extensions for res.partner.
-    /// Demonstrates the Odoo-aligned override pattern for Write and Create pipelines.
+    /// Demonstrates the Odoo-aligned override pattern for business method pipelines.
+    ///
+    /// Write/Create pipeline overrides use IRecordValues interface for cross-assembly compatibility.
+    /// The IRecordValues interface provides:
+    /// - ToDictionary() for accessing field values
+    /// - GetSetFields() for knowing which fields were set
     /// </summary>
     public static class PartnerLogic
     {
@@ -20,17 +25,18 @@ namespace Odoo.Sale.Logic
         [OdooLogic("res.partner", "action_verify")]
         public static void ActionVerify(
             RecordSet<IPartnerBase> self,
-            Action<RecordSet<IPartnerBase>> super)
+            Action<RecordSet<IPartnerBase>> super
+        )
         {
             Console.WriteLine("[Sale] PRE: Checking credit limit...");
-            
+
             // PRE-SUPER: Validate before base logic runs
             foreach (var partner in self)
             {
                 // In a real scenario, access sale-specific fields
                 Console.WriteLine($"[Sale] Checking partner {partner.Id}: {partner.Name}");
             }
-            
+
             // Call next in pipeline (eventually reaches the base implementation)
             super(self);
 
@@ -38,38 +44,50 @@ namespace Odoo.Sale.Logic
         }
 
         /// <summary>
-        /// Override for write - adds audit logging and sale-specific validation.
-        /// This demonstrates the Odoo-aligned Write override pattern.
-        /// Signature: (RecordHandle, Dictionary, super) where super has same signature without 'super' param.
+        /// Override for write pipeline - adds sale-specific validation.
+        /// Uses IRecordValues interface for cross-assembly compatibility.
+        ///
+        /// Because ResPartnerValues implements IRecordValues&lt;T&gt; for ALL visible interfaces,
+        /// you can cast to the specific type for type-safe access:
+        ///   if (vals is IRecordValues&lt;IPartnerSaleExtension&gt;) { ... }
+        ///
+        /// This demonstrates the Odoo pattern where modules can intercept and modify
+        /// write operations to add business logic (validation, computed fields, etc.).
         /// </summary>
         [OdooLogic("res.partner", "write")]
         public static void Write_SaleOverride(
             RecordHandle handle,
-            Dictionary<string, object?> vals,
-            Action<RecordHandle, Dictionary<string, object?>> super)
+            IRecordValues vals,
+            Action<RecordHandle, IRecordValues> super
+        )
         {
-            Console.WriteLine($"[Sale] PRE-WRITE: Modifying partner {handle.Id}");
-            
-            // PRE-WRITE: Add audit information
-            vals["write_date"] = DateTime.UtcNow;
-            Console.WriteLine($"[Sale] Added write_date to values");
-            
-            // PRE-WRITE: Validate sale-specific business rules
-            if (vals.ContainsKey("credit_limit"))
+            Console.WriteLine("[Sale] Write override: validating partner data...");
+
+            // IRecordValues provides ToDictionary() and GetSetFields() for field access
+            var dict = vals.ToDictionary();
+            foreach (var fieldName in vals.GetSetFields())
             {
-                var creditLimit = Convert.ToDecimal(vals["credit_limit"]);
-                if (creditLimit < 0)
-                {
-                    throw new InvalidOperationException("Credit limit cannot be negative!");
-                }
-                Console.WriteLine($"[Sale] Validated credit_limit: {creditLimit}");
+                Console.WriteLine($"[Sale]   Field being written: {fieldName} = {dict[fieldName]}");
             }
-            
-            // Call next in pipeline (Write_Base)
+
+            // Type-safe check using multi-interface implementation
+            // ResPartnerValues now implements IRecordValues<T> for ALL visible interfaces,
+            // so this cast will succeed for values from any downstream assembly!
+            if (vals is IRecordValues<IPartnerSaleExtension> saleVals)
+            {
+                Console.WriteLine(
+                    "[Sale]   ✓ Successfully cast to IRecordValues<IPartnerSaleExtension>"
+                );
+                // Now you have compile-time proof this is partner-compatible
+            }
+
+            // PRE-SUPER: Business logic goes here
+            // Example: Validate credit limit, compute derived fields, etc.
+
+            // Call next in pipeline (eventually reaches base write)
             super(handle, vals);
-            
-            // POST-WRITE: Side effects after base write completes
-            Console.WriteLine($"[Sale] POST-WRITE: Partner {handle.Id} updated successfully");
+
+            Console.WriteLine("[Sale] Write override: complete.");
         }
     }
 }

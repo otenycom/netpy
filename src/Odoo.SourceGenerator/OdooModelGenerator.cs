@@ -659,16 +659,16 @@ namespace Odoo.SourceGenerator
             var handlerName = $"{className}ValuesHandler";
 
             // ========================================
-            // WRITE PIPELINE - TYPED VALUES PRIMARY PATH
+            // WRITE PIPELINE - IRecordValues FOR CROSS-ASSEMBLY COMPATIBILITY
             // ========================================
-            sb.AppendLine("        #region Write Pipeline (Typed Values - Primary Path)");
+            sb.AppendLine(
+                "        #region Write Pipeline (IRecordValues - Cross-Assembly Compatible)"
+            );
             sb.AppendLine();
             sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Unified write method using typed Values - CONVENIENCE API.");
             sb.AppendLine(
-                "        /// Unified write method using typed Values - THE PRIMARY PATH."
-            );
-            sb.AppendLine(
-                "        /// Modules override this to add business logic (validation, onchange, etc.)."
+                "        /// Calls the IRecordValues pipeline for cross-assembly override support."
             );
             sb.AppendLine("        /// Mirrors Odoo's BaseModel.write() method.");
             sb.AppendLine("        /// </summary>");
@@ -677,42 +677,72 @@ namespace Odoo.SourceGenerator
             );
             sb.AppendLine("        {");
             sb.AppendLine(
-                $"            var pipeline = handle.Env.GetPipeline<Action<RecordHandle, {valuesName}>>(\"{model.ModelName}\", \"write\");"
+                "            // Call the IRecordValues pipeline - enables cross-assembly overrides"
+            );
+            sb.AppendLine(
+                $"            var pipeline = handle.Env.GetPipeline<Action<RecordHandle, IRecordValues>>(\"{model.ModelName}\", \"write\");"
             );
             sb.AppendLine("            pipeline(handle, values);");
             sb.AppendLine("        }");
             sb.AppendLine();
 
             sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Base write implementation using IRecordValues interface.");
             sb.AppendLine(
-                "        /// Base write implementation using typed Values - HIGH PERFORMANCE PATH."
+                "        /// Converts to typed values for high-performance cache writes."
             );
             sb.AppendLine(
-                "        /// Uses ValuesHandler.ApplyToCache for direct typed cache writes (no reflection)."
+                "        /// This signature enables cross-assembly pipeline composition."
             );
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                $"        public static void Write_Base(RecordHandle handle, {valuesName} values)"
+                $"        public static void Write_Base(RecordHandle handle, IRecordValues values)"
             );
             sb.AppendLine("        {");
             sb.AppendLine($"            var modelToken = ModelSchema.{className}.ModelToken;");
             sb.AppendLine();
             sb.AppendLine(
-                "            // High-performance typed cache write using generated handler"
+                "            // Convert IRecordValues to typed values for high-performance cache access"
+            );
+            sb.AppendLine($"            if (values is {valuesName} typedValues)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                // Direct typed path - maximum performance");
+            sb.AppendLine(
+                $"                {handlerName}.Instance.ApplyToCache(typedValues, handle.Env.Columns, modelToken, handle.Id);"
             );
             sb.AppendLine(
-                $"            {handlerName}.Instance.ApplyToCache(values, handle.Env.Columns, modelToken, handle.Id);"
-            );
-            sb.AppendLine(
-                $"            {handlerName}.Instance.MarkDirty(values, handle.Env.Columns, modelToken, handle.Id);"
+                $"                {handlerName}.Instance.MarkDirty(typedValues, handle.Env.Columns, modelToken, handle.Id);"
             );
             sb.AppendLine();
-            sb.AppendLine("            // Trigger recomputation of dependent computed fields");
-            sb.AppendLine("            if (handle.Env is OdooEnvironment odooEnv)");
+            sb.AppendLine("                // Trigger recomputation of dependent computed fields");
+            sb.AppendLine("                if (handle.Env is OdooEnvironment odooEnv)");
+            sb.AppendLine("                {");
+            sb.AppendLine(
+                $"                    {handlerName}.Instance.TriggerModified(typedValues, odooEnv, modelToken, handle.Id);"
+            );
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            sb.AppendLine("            else");
             sb.AppendLine("            {");
             sb.AppendLine(
-                $"                {handlerName}.Instance.TriggerModified(values, odooEnv, modelToken, handle.Id);"
+                "                // Fallback: convert via dictionary (cross-assembly values type)"
             );
+            sb.AppendLine(
+                $"                var converted = {valuesName}.FromDictionary(values.ToDictionary());"
+            );
+            sb.AppendLine(
+                $"                {handlerName}.Instance.ApplyToCache(converted, handle.Env.Columns, modelToken, handle.Id);"
+            );
+            sb.AppendLine(
+                $"                {handlerName}.Instance.MarkDirty(converted, handle.Env.Columns, modelToken, handle.Id);"
+            );
+            sb.AppendLine();
+            sb.AppendLine("                if (handle.Env is OdooEnvironment odooEnv)");
+            sb.AppendLine("                {");
+            sb.AppendLine(
+                $"                    {handlerName}.Instance.TriggerModified(converted, odooEnv, modelToken, handle.Id);"
+            );
+            sb.AppendLine("                }");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine();
@@ -736,16 +766,18 @@ namespace Odoo.SourceGenerator
             sb.AppendLine();
 
             // ========================================
-            // CREATE PIPELINE - TYPED VALUES PRIMARY PATH
+            // CREATE PIPELINE - IRecordValues FOR CROSS-ASSEMBLY COMPATIBILITY
             // ========================================
-            sb.AppendLine("        #region Create Pipeline (Typed Values - Primary Path)");
+            sb.AppendLine(
+                "        #region Create Pipeline (IRecordValues - Cross-Assembly Compatible)"
+            );
             sb.AppendLine();
             sb.AppendLine("        /// <summary>");
             sb.AppendLine(
-                "        /// Unified create method using typed Values - THE PRIMARY PATH."
+                "        /// Unified create method using typed Values - CONVENIENCE API."
             );
             sb.AppendLine(
-                "        /// Modules override this to add creation logic (defaults, validation, etc.)."
+                "        /// Calls the IRecordValues pipeline for cross-assembly override support."
             );
             sb.AppendLine("        /// Mirrors Odoo's BaseModel.create() method.");
             sb.AppendLine("        /// </summary>");
@@ -754,22 +786,26 @@ namespace Odoo.SourceGenerator
             );
             sb.AppendLine("        {");
             sb.AppendLine(
-                $"            var pipeline = env.GetPipeline<Func<IEnvironment, {valuesName}, {className}>>(\"{model.ModelName}\", \"create\");"
+                "            // Call the IRecordValues pipeline - enables cross-assembly overrides"
             );
-            sb.AppendLine("            return pipeline(env, values);");
+            sb.AppendLine(
+                $"            var pipeline = env.GetPipeline<Func<IEnvironment, IRecordValues, IOdooRecord>>(\"{model.ModelName}\", \"create\");"
+            );
+            sb.AppendLine($"            return ({className})pipeline(env, values);");
             sb.AppendLine("        }");
             sb.AppendLine();
 
             sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Base create implementation using IRecordValues interface.");
             sb.AppendLine(
-                "        /// Base create implementation using typed Values - HIGH PERFORMANCE PATH."
+                "        /// Converts to typed values for high-performance cache writes."
             );
             sb.AppendLine(
-                "        /// Uses ValuesHandler.ApplyToCache for direct typed cache writes (no reflection)."
+                "        /// This signature enables cross-assembly pipeline composition."
             );
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                $"        public static {className} Create_Base(IEnvironment env, {valuesName} values)"
+                $"        public static IOdooRecord Create_Base(IEnvironment env, IRecordValues values)"
             );
             sb.AppendLine("        {");
             sb.AppendLine(
@@ -788,20 +824,35 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("            }");
             sb.AppendLine();
             sb.AppendLine(
+                "            // Convert IRecordValues to typed values for high-performance cache access"
+            );
+            sb.AppendLine($"            {valuesName} typedValues;");
+            sb.AppendLine($"            if (values is {valuesName} tv)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                typedValues = tv;");
+            sb.AppendLine("            }");
+            sb.AppendLine("            else");
+            sb.AppendLine("            {");
+            sb.AppendLine(
+                $"                typedValues = {valuesName}.FromDictionary(values.ToDictionary());"
+            );
+            sb.AppendLine("            }");
+            sb.AppendLine();
+            sb.AppendLine(
                 "            // High-performance typed cache write using generated handler"
             );
             sb.AppendLine(
-                $"            {handlerName}.Instance.ApplyToCache(values, env.Columns, modelToken, newId);"
+                $"            {handlerName}.Instance.ApplyToCache(typedValues, env.Columns, modelToken, newId);"
             );
             sb.AppendLine(
-                $"            {handlerName}.Instance.MarkDirty(values, env.Columns, modelToken, newId);"
+                $"            {handlerName}.Instance.MarkDirty(typedValues, env.Columns, modelToken, newId);"
             );
             sb.AppendLine();
             sb.AppendLine("            // Trigger recomputation of dependent computed fields");
             sb.AppendLine("            if (env is OdooEnvironment odooEnv2)");
             sb.AppendLine("            {");
             sb.AppendLine(
-                $"                {handlerName}.Instance.TriggerModified(values, odooEnv2, modelToken, newId);"
+                $"                {handlerName}.Instance.TriggerModified(typedValues, odooEnv2, modelToken, newId);"
             );
             sb.AppendLine("            }");
             sb.AppendLine();
@@ -821,7 +872,7 @@ namespace Odoo.SourceGenerator
             );
             sb.AppendLine("        {");
             sb.AppendLine($"            var typedValues = {valuesName}.FromDictionary(vals);");
-            sb.AppendLine("            return Create(env, typedValues);");
+            sb.AppendLine($"            return ({className})Create(env, typedValues);");
             sb.AppendLine("        }");
             sb.AppendLine();
             sb.AppendLine("        #endregion");
@@ -1018,7 +1069,8 @@ namespace Odoo.SourceGenerator
 
         /// <summary>
         /// Generate Values class with RecordValueField&lt;T&gt; properties.
-        /// Implements IRecordValues&lt;TRecord&gt; for type-safe record creation.
+        /// Implements IRecordValues&lt;TRecord&gt; for ALL visible interfaces.
+        /// This enables cross-assembly pipeline overrides to use specific generic types.
         /// </summary>
         private string GenerateValuesClass(UnifiedModelInfo model, string safeAssemblyName)
         {
@@ -1026,8 +1078,13 @@ namespace Odoo.SourceGenerator
             var className = model.ClassName;
             var valuesName = $"{className}Values";
             var schemaNamespace = $"Odoo.Generated.{safeAssemblyName}";
-            var primaryInterface =
-                model.Interfaces.FirstOrDefault()?.ToDisplayString() ?? "IOdooRecord";
+
+            // Build the list of ALL IRecordValues<T> interfaces for cross-assembly compatibility
+            // This allows overrides to use specific types like IRecordValues<IPartnerSaleExtension>
+            var allRecordValuesInterfaces = model
+                .Interfaces.Select(i => $"IRecordValues<{i.ToDisplayString()}>")
+                .ToList();
+            var interfaceList = string.Join(", ", allRecordValuesInterfaces);
 
             sb.AppendLine("// <auto-generated/>");
             sb.AppendLine("#nullable enable");
@@ -1055,6 +1112,11 @@ namespace Odoo.SourceGenerator
             sb.AppendLine(
                 $"    /// Uses RecordValueField&lt;T&gt; to track which fields are explicitly set."
             );
+            sb.AppendLine($"    /// Implements IRecordValues&lt;T&gt; for ALL visible interfaces:");
+            foreach (var iface in model.Interfaces)
+            {
+                sb.AppendLine($"    ///   - IRecordValues&lt;{iface.Name}&gt;");
+            }
             sb.AppendLine($"    /// </summary>");
             sb.AppendLine($"    /// <remarks>");
             sb.AppendLine(
@@ -1064,9 +1126,7 @@ namespace Odoo.SourceGenerator
                 $"    /// The implicit conversion from T to RecordValueField&lt;T&gt; automatically marks fields as set."
             );
             sb.AppendLine($"    /// </remarks>");
-            sb.AppendLine(
-                $"    public sealed class {valuesName} : IRecordValues<{primaryInterface}>"
-            );
+            sb.AppendLine($"    public sealed class {valuesName} : {interfaceList}");
             sb.AppendLine("    {");
             sb.AppendLine($"        /// <summary>Gets the Odoo model name.</summary>");
             sb.AppendLine($"        public string ModelName => \"{model.ModelName}\";");
@@ -1798,23 +1858,23 @@ namespace Odoo.SourceGenerator
 
                 sb.AppendLine();
                 sb.AppendLine(
-                    $"            // {model.ModelName} - TYPED VALUES pipelines (high-performance path)"
+                    $"            // {model.ModelName} - IRecordValues pipelines (cross-assembly compatible)"
                 );
 
-                // Register Write pipeline base with TYPED VALUES
+                // Register Write pipeline base with IRecordValues for cross-assembly compatibility
                 sb.AppendLine(
                     $"            builder.RegisterBase(\"{model.ModelName}\", \"write\", "
                 );
                 sb.AppendLine(
-                    $"                (Action<RecordHandle, {valuesName}>){pipelineClass}.Write_Base);"
+                    $"                (Action<RecordHandle, IRecordValues>){pipelineClass}.Write_Base);"
                 );
 
-                // Register Create pipeline base with TYPED VALUES
+                // Register Create pipeline base with IRecordValues for cross-assembly compatibility
                 sb.AppendLine(
                     $"            builder.RegisterBase(\"{model.ModelName}\", \"create\", "
                 );
                 sb.AppendLine(
-                    $"                (Func<IEnvironment, {valuesName}, {className}>){pipelineClass}.Create_Base);"
+                    $"                (Func<IEnvironment, IRecordValues, IOdooRecord>){pipelineClass}.Create_Base);"
                 );
 
                 // Register compute pipelines for computed fields (batch RecordSet pattern)
