@@ -92,7 +92,7 @@ public class PartnerUsageTests
         var env = CreateConfiguredEnvironment();
 
         // Act - Create a company partner
-        var company = ResPartnerPipelines.Create(
+        var company = ResPartnerPipelines.CreateFromDict(
             env,
             new() { { "name", "Acme Corp" }, { "is_company", true } }
         );
@@ -111,7 +111,7 @@ public class PartnerUsageTests
     {
         // Arrange
         var env = CreateConfiguredEnvironment();
-        var partner = ResPartnerPipelines.Create(env, new() { { "name", "Bob" } });
+        var partner = ResPartnerPipelines.CreateFromDict(env, new() { { "name", "Bob" } });
         Assert.Equal("Bob", partner.DisplayName);
 
         // Act - Change name using simple property setter
@@ -126,7 +126,7 @@ public class PartnerUsageTests
     {
         // Arrange
         var env = CreateConfiguredEnvironment();
-        var partner = ResPartnerPipelines.Create(env, new() { { "name", "Alice" } });
+        var partner = ResPartnerPipelines.CreateFromDict(env, new() { { "name", "Alice" } });
         Assert.Equal("Alice", partner.DisplayName); // Individual format
 
         // Act - Change to company
@@ -147,7 +147,7 @@ public class PartnerUsageTests
         var env = CreateConfiguredEnvironment();
 
         // Act - Create partner with sale module fields
-        var customer = ResPartnerPipelines.Create(
+        var customer = ResPartnerPipelines.CreateFromDict(
             env,
             new()
             {
@@ -170,7 +170,7 @@ public class PartnerUsageTests
     {
         // Arrange
         var env = CreateConfiguredEnvironment();
-        var partner = ResPartnerPipelines.Create(env, new() { { "name", "Test" } });
+        var partner = ResPartnerPipelines.CreateFromDict(env, new() { { "name", "Test" } });
 
         // Act - Get same record via different interface
         var asBase = env.GetRecord<IPartnerBase>("res.partner", partner.Id);
@@ -190,7 +190,7 @@ public class PartnerUsageTests
     {
         // Arrange
         var env = CreateConfiguredEnvironment();
-        var partner = ResPartnerPipelines.Create(env, new() { { "name", "Test" } });
+        var partner = ResPartnerPipelines.CreateFromDict(env, new() { { "name", "Test" } });
 
         // Act - Property setter triggers Write pipeline
         // Under the hood: partner.Email = x → ResPartnerPipelines.Write(handle, { "email": x })
@@ -218,15 +218,15 @@ public class PartnerUsageTests
     {
         // Arrange
         var env = CreateConfiguredEnvironment();
-        var p1 = ResPartnerPipelines.Create(
+        var p1 = ResPartnerPipelines.CreateFromDict(
             env,
             new() { { "name", "Individual 1" }, { "is_company", false } }
         );
-        var p2 = ResPartnerPipelines.Create(
+        var p2 = ResPartnerPipelines.CreateFromDict(
             env,
             new() { { "name", "Company A" }, { "is_company", true } }
         );
-        var p3 = ResPartnerPipelines.Create(
+        var p3 = ResPartnerPipelines.CreateFromDict(
             env,
             new() { { "name", "Company B" }, { "is_company", true } }
         );
@@ -253,7 +253,7 @@ public class PartnerUsageTests
     {
         // Arrange
         var env = CreateConfiguredEnvironment();
-        var partner = ResPartnerPipelines.Create(env, new() { { "name", "Test" } });
+        var partner = ResPartnerPipelines.CreateFromDict(env, new() { { "name", "Test" } });
 
         // Act & Assert - Trying to set computed field outside compute throws
         var ex = Assert.Throws<InvalidOperationException>(() =>

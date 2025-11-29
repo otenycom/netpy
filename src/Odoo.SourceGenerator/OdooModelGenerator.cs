@@ -571,19 +571,19 @@ namespace Odoo.SourceGenerator
                         $"                ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name});"
                     );
 
-                    // SETTER: Delegate to Write() pipeline (like Odoo Field.__set__)
+                    // SETTER: Delegate to WriteFromDict() pipeline (like Odoo Field.__set__)
                     if (!prop.IsReadOnly)
                     {
                         sb.AppendLine("            set");
                         sb.AppendLine("            {");
                         sb.AppendLine(
-                            $"                // Delegate to Write() pipeline - Odoo pattern"
+                            $"                // Delegate to WriteFromDict() pipeline - Odoo pattern"
                         );
                         sb.AppendLine(
                             $"                var vals = new Dictionary<string, object?> {{ {{ \"{fieldName}\", value }} }};"
                         );
                         sb.AppendLine(
-                            $"                {className}Pipelines.Write(_handle, vals);"
+                            $"                {className}Pipelines.WriteFromDict(_handle, vals);"
                         );
                         sb.AppendLine("            }");
                     }
@@ -655,14 +655,17 @@ namespace Odoo.SourceGenerator
             sb.AppendLine($"    public static class {pipelineClass}");
             sb.AppendLine("    {");
 
+            var valuesName = $"{className}Values";
+            var handlerName = $"{className}ValuesHandler";
+
             // ========================================
-            // WRITE PIPELINE - The single extension point for setters
+            // WRITE PIPELINE - TYPED VALUES PRIMARY PATH
             // ========================================
-            sb.AppendLine("        #region Write Pipeline");
+            sb.AppendLine("        #region Write Pipeline (Typed Values - Primary Path)");
             sb.AppendLine();
             sb.AppendLine("        /// <summary>");
             sb.AppendLine(
-                "        /// Unified write method - THE SINGLE EXTENSION POINT for field modifications."
+                "        /// Unified write method using typed Values - THE PRIMARY PATH."
             );
             sb.AppendLine(
                 "        /// Modules override this to add business logic (validation, onchange, etc.)."
@@ -670,84 +673,76 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("        /// Mirrors Odoo's BaseModel.write() method.");
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                "        public static void Write(RecordHandle handle, Dictionary<string, object?> vals)"
+                $"        public static void Write(RecordHandle handle, {valuesName} values)"
             );
             sb.AppendLine("        {");
             sb.AppendLine(
-                $"            var pipeline = handle.Env.GetPipeline<Action<RecordHandle, Dictionary<string, object?>>>("
+                $"            var pipeline = handle.Env.GetPipeline<Action<RecordHandle, {valuesName}>>(\"{model.ModelName}\", \"write\");"
             );
-            sb.AppendLine($"                \"{model.ModelName}\", \"write\");");
-            sb.AppendLine("            pipeline(handle, vals);");
+            sb.AppendLine("            pipeline(handle, values);");
             sb.AppendLine("        }");
             sb.AppendLine();
 
             sb.AppendLine("        /// <summary>");
             sb.AppendLine(
-                "        /// Base write implementation - writes values to cache and marks dirty."
+                "        /// Base write implementation using typed Values - HIGH PERFORMANCE PATH."
             );
-            sb.AppendLine("        /// This is called at the end of the write pipeline chain.");
+            sb.AppendLine(
+                "        /// Uses ValuesHandler.ApplyToCache for direct typed cache writes (no reflection)."
+            );
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                "        public static void Write_Base(RecordHandle handle, Dictionary<string, object?> vals)"
+                $"        public static void Write_Base(RecordHandle handle, {valuesName} values)"
             );
             sb.AppendLine("        {");
             sb.AppendLine($"            var modelToken = ModelSchema.{className}.ModelToken;");
-            sb.AppendLine("            var cache = handle.Env.Columns;");
             sb.AppendLine();
-            sb.AppendLine("            foreach (var (fieldName, value) in vals)");
+            sb.AppendLine(
+                "            // High-performance typed cache write using generated handler"
+            );
+            sb.AppendLine(
+                $"            {handlerName}.Instance.ApplyToCache(values, handle.Env.Columns, modelToken, handle.Id);"
+            );
+            sb.AppendLine(
+                $"            {handlerName}.Instance.MarkDirty(values, handle.Env.Columns, modelToken, handle.Id);"
+            );
+            sb.AppendLine();
+            sb.AppendLine("            // Trigger recomputation of dependent computed fields");
+            sb.AppendLine("            if (handle.Env is OdooEnvironment odooEnv)");
             sb.AppendLine("            {");
-            sb.AppendLine("                if (value == null) continue;");
-            sb.AppendLine();
-            sb.AppendLine("                // Switch on field name to get proper typing");
-            sb.AppendLine("                switch (fieldName)");
-            sb.AppendLine("                {");
-
-            foreach (var prop in model.Properties)
-            {
-                if (prop.IsReadOnly)
-                    continue;
-
-                var fieldName = GetOdooFieldName(prop);
-                var propertyType = prop.Type.ToDisplayString();
-
-                sb.AppendLine($"                    case \"{fieldName}\":");
-                sb.AppendLine(
-                    $"                        cache.SetValue(modelToken, handle.Id, ModelSchema.{className}.{prop.Name}, ({propertyType})value);"
-                );
-                sb.AppendLine(
-                    $"                        cache.MarkDirty(modelToken, handle.Id, ModelSchema.{className}.{prop.Name});"
-                );
-
-                // Check if this field has dependents (triggers computed fields)
-                sb.AppendLine(
-                    $"                        // Trigger recomputation of dependent computed fields"
-                );
-                sb.AppendLine(
-                    $"                        if (handle.Env is OdooEnvironment odooEnv_{fieldName})"
-                );
-                sb.AppendLine($"                        {{");
-                sb.AppendLine(
-                    $"                            odooEnv_{fieldName}.Modified(modelToken, handle.Id, ModelSchema.{className}.{prop.Name});"
-                );
-                sb.AppendLine($"                        }}");
-                sb.AppendLine("                        break;");
-            }
-
-            sb.AppendLine("                }");
+            sb.AppendLine(
+                $"                {handlerName}.Instance.TriggerModified(values, odooEnv, modelToken, handle.Id);"
+            );
             sb.AppendLine("            }");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+
+            // Dictionary-based Write (converts to typed values first)
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine(
+                "        /// Write using dictionary (Python interop) - CONVERTS TO TYPED VALUES."
+            );
+            sb.AppendLine("        /// Use typed Write() overload for maximum performance.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine(
+                "        public static void WriteFromDict(RecordHandle handle, Dictionary<string, object?> vals)"
+            );
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var typedValues = {valuesName}.FromDictionary(vals);");
+            sb.AppendLine("            Write(handle, typedValues);");
             sb.AppendLine("        }");
             sb.AppendLine();
             sb.AppendLine("        #endregion");
             sb.AppendLine();
 
             // ========================================
-            // CREATE PIPELINE - Extension point for record creation
+            // CREATE PIPELINE - TYPED VALUES PRIMARY PATH
             // ========================================
-            sb.AppendLine("        #region Create Pipeline");
+            sb.AppendLine("        #region Create Pipeline (Typed Values - Primary Path)");
             sb.AppendLine();
             sb.AppendLine("        /// <summary>");
             sb.AppendLine(
-                "        /// Unified create method - extension point for record creation."
+                "        /// Unified create method using typed Values - THE PRIMARY PATH."
             );
             sb.AppendLine(
                 "        /// Modules override this to add creation logic (defaults, validation, etc.)."
@@ -755,24 +750,26 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("        /// Mirrors Odoo's BaseModel.create() method.");
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                $"        public static {className} Create(IEnvironment env, Dictionary<string, object?> vals)"
+                $"        public static {className} Create(IEnvironment env, {valuesName} values)"
             );
             sb.AppendLine("        {");
             sb.AppendLine(
-                $"            var pipeline = env.GetPipeline<Func<IEnvironment, Dictionary<string, object?>, {className}>>("
+                $"            var pipeline = env.GetPipeline<Func<IEnvironment, {valuesName}, {className}>>(\"{model.ModelName}\", \"create\");"
             );
-            sb.AppendLine($"                \"{model.ModelName}\", \"create\");");
-            sb.AppendLine("            return pipeline(env, vals);");
+            sb.AppendLine("            return pipeline(env, values);");
             sb.AppendLine("        }");
             sb.AppendLine();
 
             sb.AppendLine("        /// <summary>");
             sb.AppendLine(
-                "        /// Base create implementation - allocates ID, creates record, writes values."
+                "        /// Base create implementation using typed Values - HIGH PERFORMANCE PATH."
+            );
+            sb.AppendLine(
+                "        /// Uses ValuesHandler.ApplyToCache for direct typed cache writes (no reflection)."
             );
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                $"        public static {className} Create_Base(IEnvironment env, Dictionary<string, object?> vals)"
+                $"        public static {className} Create_Base(IEnvironment env, {valuesName} values)"
             );
             sb.AppendLine("        {");
             sb.AppendLine(
@@ -791,11 +788,40 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("            }");
             sb.AppendLine();
             sb.AppendLine(
-                "            // Write initial values using the base write (no pipeline for creation)"
+                "            // High-performance typed cache write using generated handler"
             );
-            sb.AppendLine("            Write_Base(handle, vals);");
+            sb.AppendLine(
+                $"            {handlerName}.Instance.ApplyToCache(values, env.Columns, modelToken, newId);"
+            );
+            sb.AppendLine(
+                $"            {handlerName}.Instance.MarkDirty(values, env.Columns, modelToken, newId);"
+            );
+            sb.AppendLine();
+            sb.AppendLine("            // Trigger recomputation of dependent computed fields");
+            sb.AppendLine("            if (env is OdooEnvironment odooEnv2)");
+            sb.AppendLine("            {");
+            sb.AppendLine(
+                $"                {handlerName}.Instance.TriggerModified(values, odooEnv2, modelToken, newId);"
+            );
+            sb.AppendLine("            }");
             sb.AppendLine();
             sb.AppendLine("            return record;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+
+            // Dictionary-based Create (converts to typed values first)
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine(
+                "        /// Create using dictionary (Python interop) - CONVERTS TO TYPED VALUES."
+            );
+            sb.AppendLine("        /// Use typed Create() overload for maximum performance.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine(
+                $"        public static {className} CreateFromDict(IEnvironment env, Dictionary<string, object?> vals)"
+            );
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var typedValues = {valuesName}.FromDictionary(vals);");
+            sb.AppendLine("            return Create(env, typedValues);");
             sb.AppendLine("        }");
             sb.AppendLine();
             sb.AppendLine("        #endregion");
@@ -1082,6 +1108,40 @@ namespace Odoo.SourceGenerator
             }
 
             sb.AppendLine("            return dict;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+
+            // Generate FromDictionary static method
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine(
+                "        /// Create a Values instance from a dictionary (Python interop)."
+            );
+            sb.AppendLine(
+                "        /// Used by dictionary-based Create/Write to convert to typed values."
+            );
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine(
+                $"        public static {valuesName} FromDictionary(Dictionary<string, object?> dict)"
+            );
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var values = new {valuesName}();");
+
+            foreach (var prop in model.Properties)
+            {
+                if (prop.IsReadOnly)
+                    continue;
+                var fieldName = GetOdooFieldName(prop);
+                var propertyType = prop.Type.ToDisplayString();
+
+                sb.AppendLine(
+                    $"            if (dict.TryGetValue(\"{fieldName}\", out var {ToCamelCase(prop.Name)}Val) && {ToCamelCase(prop.Name)}Val != null)"
+                );
+                sb.AppendLine(
+                    $"                values.{prop.Name} = ({propertyType}){ToCamelCase(prop.Name)}Val;"
+                );
+            }
+
+            sb.AppendLine("            return values;");
             sb.AppendLine("        }");
             sb.AppendLine();
 
@@ -1379,10 +1439,9 @@ namespace Odoo.SourceGenerator
                 sb.AppendLine($"            {valuesName} values)");
                 sb.AppendLine("        {");
                 sb.AppendLine(
-                    $"            // Use ToDictionary() which only includes fields with IsSet=true"
+                    $"            // Direct typed call - HIGH PERFORMANCE PATH (no dictionary conversion)"
                 );
-                sb.AppendLine($"            var vals = values.ToDictionary();");
-                sb.AppendLine($"            return {pipelineClass}.Create(env, vals);");
+                sb.AppendLine($"            return {pipelineClass}.Create(env, values);");
                 sb.AppendLine("        }");
                 sb.AppendLine();
 
@@ -1419,14 +1478,14 @@ namespace Odoo.SourceGenerator
                     $"        /// Create a new {model.ModelName} record using dictionary (Python-style)."
                 );
                 sb.AppendLine(
-                    $"        /// Delegates to unified Create pipeline for extensibility."
+                    $"        /// Converts to typed Values and calls the typed Create pipeline."
                 );
                 sb.AppendLine($"        /// </summary>");
                 sb.AppendLine($"        public static {className} Create{className}(");
                 sb.AppendLine($"            this IEnvironment env,");
                 sb.AppendLine($"            Dictionary<string, object?> vals)");
                 sb.AppendLine("        {");
-                sb.AppendLine($"            return {pipelineClass}.Create(env, vals);");
+                sb.AppendLine($"            return {pipelineClass}.CreateFromDict(env, vals);");
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
@@ -1730,25 +1789,27 @@ namespace Odoo.SourceGenerator
                 var className = model.ClassName;
                 var pipelineClass = $"{className}Pipelines";
 
+                var valuesName = $"{className}Values";
+
                 sb.AppendLine();
                 sb.AppendLine(
-                    $"            // {model.ModelName} - UNIFIED Write/Create pipelines (Odoo pattern)"
+                    $"            // {model.ModelName} - TYPED VALUES pipelines (high-performance path)"
                 );
 
-                // Register Write pipeline base
+                // Register Write pipeline base with TYPED VALUES
                 sb.AppendLine(
                     $"            builder.RegisterBase(\"{model.ModelName}\", \"write\", "
                 );
                 sb.AppendLine(
-                    $"                (Action<RecordHandle, Dictionary<string, object?>>){pipelineClass}.Write_Base);"
+                    $"                (Action<RecordHandle, {valuesName}>){pipelineClass}.Write_Base);"
                 );
 
-                // Register Create pipeline base
+                // Register Create pipeline base with TYPED VALUES
                 sb.AppendLine(
                     $"            builder.RegisterBase(\"{model.ModelName}\", \"create\", "
                 );
                 sb.AppendLine(
-                    $"                (Func<IEnvironment, Dictionary<string, object?>, {className}>){pipelineClass}.Create_Base);"
+                    $"                (Func<IEnvironment, {valuesName}, {className}>){pipelineClass}.Create_Base);"
                 );
 
                 // Register compute pipelines for computed fields (batch RecordSet pattern)
