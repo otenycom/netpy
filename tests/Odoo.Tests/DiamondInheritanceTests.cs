@@ -1,15 +1,9 @@
 using Odoo.Base.Models;
 using Odoo.Core;
-using Odoo.Core.Modules;
-using Odoo.Core.Pipeline;
 using Odoo.Generated.OdooTests;
 using Odoo.Purchase.Models;
 using Odoo.Sale.Models;
 using Xunit;
-using OdooBase = Odoo.Generated.OdooBase;
-using OdooPurchase = Odoo.Generated.OdooPurchase;
-using OdooSale = Odoo.Generated.OdooSale;
-using OdooTests = Odoo.Generated.OdooTests;
 
 namespace Odoo.Tests;
 
@@ -38,46 +32,24 @@ public class DiamondInheritanceTests
 
     /// <summary>
     /// Creates a fully configured OdooEnvironment with all pipelines registered.
-    /// This includes base, sale, AND purchase modules for diamond inheritance testing.
+    /// Uses the OdooEnvironmentBuilder which auto-discovers all addons from loaded assemblies.
+    ///
+    /// The builder automatically:
+    /// - Discovers all assemblies referencing Odoo.Core
+    /// - Finds IModuleRegistrar implementations
+    /// - Scans for [OdooModel] interfaces
+    /// - Registers pipelines in dependency order
+    /// - Compiles delegate chains
     /// </summary>
     private static OdooEnvironment CreateConfiguredEnvironment()
     {
-        // 1. Create registries
-        var pipelineRegistry = new PipelineRegistry();
-        var registryBuilder = new RegistryBuilder();
-
-        // 2. Scan for models from ALL referenced assemblies
-        registryBuilder.ScanAssembly(typeof(IPartnerBase).Assembly); // Odoo.Base
-        registryBuilder.ScanAssembly(typeof(IPartnerSaleExtension).Assembly); // Odoo.Sale
-        registryBuilder.ScanAssembly(typeof(IPartnerPurchaseExtension).Assembly); // Odoo.Purchase
-        var modelRegistry = registryBuilder.Build();
-
-        // 3. Register pipelines and factories from generated code
-        // Order matters for dependency resolution - base first, then extensions
-
-        // First, register from Odoo.Base
-        var baseRegistrar = new OdooBase.ModuleRegistrar();
-        baseRegistrar.RegisterPipelines(pipelineRegistry);
-
-        // Then register from Odoo.Sale (extends base)
-        var saleRegistrar = new OdooSale.ModuleRegistrar();
-        saleRegistrar.RegisterPipelines(pipelineRegistry);
-
-        // Then register from Odoo.Purchase (extends base)
-        var purchaseRegistrar = new OdooPurchase.ModuleRegistrar();
-        purchaseRegistrar.RegisterPipelines(pipelineRegistry);
-
-        // Finally, register from test assembly's generated code
-        // This contains the unified ResPartner wrapper that sees ALL interfaces
-        var testRegistrar = new ModuleRegistrar();
-        testRegistrar.RegisterPipelines(pipelineRegistry);
-        testRegistrar.RegisterFactories(modelRegistry);
-
-        // 4. Compile pipelines (builds delegate chains)
-        pipelineRegistry.CompileAll();
-
-        // 5. Create environment
-        return new OdooEnvironment(userId: 1, null, modelRegistry, pipelineRegistry);
+        // The builder auto-discovers addons from loaded assemblies
+        // For this test project, that includes:
+        // - Odoo.Base (IPartnerBase)
+        // - Odoo.Sale (IPartnerSaleExtension)
+        // - Odoo.Purchase (IPartnerPurchaseExtension)
+        // - Odoo.Tests (unified IResPartner interface and ResPartner wrapper)
+        return new OdooEnvironmentBuilder().WithUserId(1).Build();
     }
 
     #endregion

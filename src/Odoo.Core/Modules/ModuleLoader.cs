@@ -8,6 +8,37 @@ using System.Text.Json;
 
 namespace Odoo.Core.Modules
 {
+    /// <summary>
+    /// Dynamic module loader that loads assemblies from an addons directory at runtime.
+    ///
+    /// <para>
+    /// <b>DEPRECATED:</b> This class uses dynamic assembly loading which is incompatible
+    /// with NetPy's static compilation architecture. Consider using <see cref="OdooEnvironmentBuilder"/>
+    /// instead, which auto-discovers modules from assemblies already loaded by the host process.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Why Static Compilation?</b>
+    /// <list type="bullet">
+    /// <item>Source generators need all types visible at compile time to generate unified interfaces</item>
+    /// <item>Diamond inheritance (IResPartner : IPartnerBase, IPartnerSaleExtension, ...) requires compile-time knowledge</item>
+    /// <item>AOT compilation and trimming are incompatible with dynamic assembly loading</item>
+    /// <item>Type safety and IntelliSense work better with static compilation</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Migration Path:</b>
+    /// <list type="number">
+    /// <item>Add addon projects as references to your application project</item>
+    /// <item>Use <c>new OdooEnvironmentBuilder().Build()</c> to create configured environments</item>
+    /// <item>For addon installation, use the sidecar tool to recompile the solution</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    [Obsolete(
+        "Use OdooEnvironmentBuilder instead. Dynamic assembly loading is incompatible with NetPy's static compilation architecture."
+    )]
     public class ModuleLoader
     {
         private readonly string _addonsPath;

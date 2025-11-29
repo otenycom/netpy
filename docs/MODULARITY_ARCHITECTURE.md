@@ -317,18 +317,146 @@ The Source Generator produces:
 | `ModuleRegistrar.g.cs` | `IModuleRegistrar` impl for registration |
 | `OdooEnvironmentExtensions.g.cs` | `env.Create()` extension returning unified interface |
 
+## Environment Setup with OdooEnvironmentBuilder
+
+The recommended way to create a configured `OdooEnvironment` is using the `OdooEnvironmentBuilder`:
+
+```csharp
+// Simple usage - auto-discovers all addons from loaded assemblies
+var env = new OdooEnvironmentBuilder()
+    .WithUserId(1)
+    .Build();
+
+// Advanced usage - custom cache
+var env = new OdooEnvironmentBuilder()
+    .WithUserId(1)
+    .WithCache(new CustomColumnarCache())
+    .Build();
+```
+
+The builder automatically:
+1. Discovers all assemblies referencing `Odoo.Core`
+2. Finds `IModuleRegistrar` implementations
+3. Scans for `[OdooModel]` interfaces
+4. Registers pipelines in dependency order
+5. Compiles delegate chains
+6. Returns a fully configured environment
+
+## Static Compilation Architecture
+
+NetPy uses **static compilation** instead of Odoo's dynamic module loading:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        COMPILE TIME                                  │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Odoo.Base.csproj ──────────────────────────────────────────────┐   │
+│       │                                                          │   │
+│       ├── IPartnerBase interface                                 │   │
+│       └── [OdooLogic] methods                                    │   │
+│                                                                  │   │
+│  Odoo.Sale.csproj ─────────────────────────────────┐             │   │
+│       │  references Odoo.Base                       │             │   │
+│       ├── IPartnerSaleExtension interface           │             │   │
+│       └── [OdooLogic] overrides                     │             │   │
+│                                                     ▼             │   │
+│  Odoo.Purchase.csproj ──────────────────────────────┼─────────────┤   │
+│       │  references Odoo.Base                       │             │   │
+│       ├── IPartnerPurchaseExtension interface       │             │   │
+│       └── [OdooLogic] overrides                     │             │   │
+│                                                     │             │   │
+│                                                     ▼             ▼   │
+│  App.csproj ◄───────────────────────────────────────┴─────────────┘   │
+│       │  references all addons                                        │
+│       │                                                               │
+│       └── Source Generator produces:                                  │
+│           ├── IResPartner (unified interface)                         │
+│           ├── ResPartner (wrapper class)                              │
+│           ├── ResPartnerValues                                        │
+│           └── ModuleRegistrar                                         │
+│                                                                       │
+└───────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                        RUNTIME                                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  OdooEnvironmentBuilder.Build()                                      │
+│       │                                                              │
+│       ├── Discover addon assemblies (from loaded assemblies)         │
+│       ├── Find IModuleRegistrar implementations                      │
+│       ├── Scan [OdooModel] interfaces                                │
+│       ├── Register pipelines in dependency order                     │
+│       ├── Compile delegate chains                                    │
+│       └── Return OdooEnvironment                                     │
+│                                                                      │
+│  Application executes with fully typed, compiled code                │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Why Static Compilation?
+
+| Aspect | Static Compilation | Dynamic Loading |
+|--------|-------------------|-----------------|
+| **Type Safety** | Full IntelliSense, compile-time errors | Runtime reflection, no IntelliSense |
+| **Performance** | Compiled delegates (~3-5ns) | Reflection dispatch (~200ns) |
+| **Source Generators** | Full support - all types visible | Limited - types not visible at compile time |
+| **AOT/Trimming** | Fully compatible | Requires special handling |
+| **Diamond Inheritance** | Unified interfaces generated | Manual casting required |
+
+### Sidecar Project Concept
+
+When new addons need to be installed or removed, a **sidecar tool** handles the process:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     ADDON INSTALLATION FLOW                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  1. User requests addon installation                                 │
+│       │                                                              │
+│       ▼                                                              │
+│  2. Sidecar tool updates solution                                    │
+│       ├── Add addon project to .slnx                                 │
+│       ├── Add project reference to App.csproj                        │
+│       └── Update manifest.json                                       │
+│       │                                                              │
+│       ▼                                                              │
+│  3. Sidecar triggers recompilation                                   │
+│       ├── dotnet build App.csproj                                    │
+│       ├── Source generators regenerate unified interfaces            │
+│       └── All pipelines recompiled with new addon                    │
+│       │                                                              │
+│       ▼                                                              │
+│  4. Sidecar restarts application                                     │
+│       └── New assembly loaded with all addons                        │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+This approach ensures:
+- Source generators see all addon interfaces at compile time
+- Unified interfaces include all visible extensions
+- No runtime assembly loading complexity
+- Full type safety and IntelliSense
+
+The sidecar project will be implemented separately.
+
 ## Runtime Flow
 
 ```
-1. ModuleLoader.LoadModules()
-   ├── Discover addons/ directories
-   ├── Parse manifest.json files
-   ├── Topological sort by dependencies
-   └── Load DLLs via AssemblyLoadContext
+1. OdooEnvironmentBuilder.Build()
+   ├── Discover addon assemblies (from AppDomain.GetAssemblies)
+   ├── Scan for [OdooModel] interfaces
+   ├── Find IModuleRegistrar implementations
+   ├── Sort by assembly dependency order
+   └── Build ModelRegistry and PipelineRegistry
 
-2. OdooFramework.RegisterModule(assembly)
-   ├── Find IModuleRegistrar implementation
-   └── Call registrar.Register(pipelineBuilder)
+2. For each IModuleRegistrar (in dependency order):
+   ├── registrar.RegisterPipelines(pipelineRegistry)
+   └── Last registrar: registrar.RegisterFactories(modelRegistry)
 
 3. Pipeline Compilation
    ├── Collect all [OdooLogic] methods
