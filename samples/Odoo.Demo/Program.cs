@@ -1,7 +1,7 @@
-﻿using Python.Runtime;
-using System;
+﻿using System;
 using System.IO;
 using Odoo.Examples;
+using Python.Runtime;
 
 class Program
 {
@@ -13,7 +13,7 @@ class Program
         Console.WriteLine();
 
         string? choice;
-        
+
         // Check if choice was provided via command line
         if (args.Length > 0)
         {
@@ -73,6 +73,12 @@ class Program
                 break;
         }
 
+        // Shutdown Python if it was initialized
+        if (PythonEngine.IsInitialized)
+        {
+            PythonEngine.Shutdown();
+        }
+
         // Console.WriteLine("\nPress any key to exit...");
         // if (!Console.IsInputRedirected)
         // {
@@ -101,19 +107,21 @@ class Program
             if (!PythonEngine.IsInitialized)
             {
                 // Set path to your Python DLL (adjust based on installation)
-                Runtime.PythonDLL = "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3";
-                
+                Runtime.PythonDLL =
+                    "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3";
+
                 Environment.SetEnvironmentVariable("PYTHONFROZENMODULES", "0");
                 Environment.SetEnvironmentVariable("PYDEVD_DISABLE_FILE_VALIDATION", "1");
-                
+
                 var pythonArgs = new string[] { "-X", "frozen_modules=off" };
                 PythonEngine.Initialize(pythonArgs, setSysArgv: true, initSigs: false);
             }
 
             using (Py.GIL())
             {
-                global::Python.Runtime.RuntimeData.FormatterType = typeof(global::Python.Runtime.NoopFormatter);
-                
+                global::Python.Runtime.RuntimeData.FormatterType =
+                    typeof(global::Python.Runtime.NoopFormatter);
+
                 // Run the Python integration demo
                 PythonIntegrationDemo.RunDemo();
             }
@@ -132,17 +140,19 @@ class Program
         {
             if (!PythonEngine.IsInitialized)
             {
-                Runtime.PythonDLL = "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3";
+                Runtime.PythonDLL =
+                    "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3";
                 Environment.SetEnvironmentVariable("PYTHONFROZENMODULES", "0");
                 Environment.SetEnvironmentVariable("PYDEVD_DISABLE_FILE_VALIDATION", "1");
-                
+
                 var pythonArgs = new string[] { "-X", "frozen_modules=off" };
                 PythonEngine.Initialize(pythonArgs, setSysArgv: true, initSigs: false);
             }
 
             using (Py.GIL())
             {
-                global::Python.Runtime.RuntimeData.FormatterType = typeof(global::Python.Runtime.NoopFormatter);
+                global::Python.Runtime.RuntimeData.FormatterType =
+                    typeof(global::Python.Runtime.NoopFormatter);
 
                 dynamic sys = Py.Import("sys");
                 string scriptPath = Path.Combine(Directory.GetCurrentDirectory(), "Scripts");
@@ -158,10 +168,10 @@ class Program
                 Console.WriteLine($"  Counter: {dotnetObj.Counter}");
                 Console.WriteLine($"  Timestamp: {dotnetObj.Timestamp}");
                 Console.WriteLine($"  IsProcessed: {dotnetObj.IsProcessed}");
-                
+
                 dynamic pyObj = dotnetObj.ToPython();
                 string modified = sample.process_dotnet_object(pyObj);
-                
+
                 Console.WriteLine($"\n.NET object after Python modification:");
                 Console.WriteLine($"  Message: {dotnetObj.Message}");
                 Console.WriteLine($"  Counter: {dotnetObj.Counter}");

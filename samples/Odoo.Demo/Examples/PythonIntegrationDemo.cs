@@ -1,7 +1,7 @@
 using System;
 using System.IO;
-using Odoo.Core;
 using Odoo.Base.Models;
+using Odoo.Core;
 // Import unified wrappers and schema from Demo
 using Odoo.Generated.OdooDemo;
 using Odoo.Python;
@@ -32,8 +32,13 @@ namespace Odoo.Examples
                 // Try to find Scripts relative to the project root if running from there
                 var potentialPaths = new[]
                 {
-                    Path.Combine(Directory.GetCurrentDirectory(), "samples", "Odoo.Demo", "Scripts"),
-                    Path.Combine(Directory.GetCurrentDirectory(), "Scripts")
+                    Path.Combine(
+                        Directory.GetCurrentDirectory(),
+                        "samples",
+                        "Odoo.Demo",
+                        "Scripts"
+                    ),
+                    Path.Combine(Directory.GetCurrentDirectory(), "Scripts"),
                 };
 
                 foreach (var path in potentialPaths)
@@ -65,7 +70,8 @@ namespace Odoo.Examples
                 var displayName = pythonBridge.ExecuteModuleMethod<string>(
                     "odoo_module_sample",
                     "compute_partner_display_name",
-                    10);
+                    10
+                );
                 Console.WriteLine($"   Result: {displayName}\n");
 
                 // 6. Execute Python workflow
@@ -75,7 +81,8 @@ namespace Odoo.Examples
                     "partner_approval_workflow",
                     env,
                     10,
-                    "approve");
+                    "approve"
+                );
                 Console.WriteLine($"   Partner ID: {workflowResult["partner_id"]}");
                 Console.WriteLine($"   Action: {workflowResult["action"]}");
                 Console.WriteLine($"   New State: {workflowResult["new_state"]}");
@@ -88,7 +95,8 @@ namespace Odoo.Examples
                     "process_partner_batch",
                     env,
                     new[] { 10, 11, 12 },
-                    "validate");
+                    "validate"
+                );
                 Console.WriteLine($"   Processed: {batchResult["processed"]} partners");
                 Console.WriteLine($"   Operation: {batchResult["operation"]}");
                 Console.WriteLine($"   Success: {batchResult["success"]}\n");
@@ -108,7 +116,8 @@ namespace Odoo.Examples
 
                 // 9. Execute inline Python code
                 Console.WriteLine("7. Executing inline Python code:");
-                var code = @"
+                var code =
+                    @"
 result = f'Environment user: {env.UserId}'
 ";
                 pythonBridge.ExecuteWithEnvironment(code);
@@ -127,27 +136,31 @@ result = f'Environment user: {env.UserId}'
         private static void SeedSampleData(IColumnarCache cache)
         {
             // Use unified schema for seeding data
-            cache.BulkLoadRows("res.partner", ModelSchema.ResPartner.ModelToken, new()
-            {
-                [10] = new()
+            cache.BulkLoadRows(
+                "res.partner",
+                ModelSchema.ResPartner.ModelToken,
+                new()
                 {
-                    ["name"] = "Odoo S.A.",
-                    ["email"] = "info@odoo.com",
-                    ["is_company"] = true
-                },
-                [11] = new()
-                {
-                    ["name"] = "Mitchell Admin",
-                    ["email"] = "admin@example.com",
-                    ["is_company"] = false
-                },
-                [12] = new()
-                {
-                    ["name"] = "Azure Interior",
-                    ["email"] = "azure@example.com",
-                    ["is_company"] = true
+                    [10] = new()
+                    {
+                        ["name"] = "Odoo S.A.",
+                        ["email"] = "info@odoo.com",
+                        ["is_company"] = true,
+                    },
+                    [11] = new()
+                    {
+                        ["name"] = "Mitchell Admin",
+                        ["email"] = "admin@example.com",
+                        ["is_company"] = false,
+                    },
+                    [12] = new()
+                    {
+                        ["name"] = "Azure Interior",
+                        ["email"] = "azure@example.com",
+                        ["is_company"] = true,
+                    },
                 }
-            });
+            );
         }
     }
 }
