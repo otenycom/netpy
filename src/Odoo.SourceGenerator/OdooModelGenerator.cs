@@ -436,6 +436,7 @@ namespace Odoo.SourceGenerator
             sb.AppendLine();
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine("using System.Linq;");
             sb.AppendLine("using System.Runtime.CompilerServices;");
             sb.AppendLine("using Odoo.Core;");
             sb.AppendLine($"using {schemaNamespace};");
@@ -458,30 +459,95 @@ namespace Odoo.SourceGenerator
             sb.AppendLine($"    /// Implements: {interfaceList}");
             sb.AppendLine($"    /// ");
             sb.AppendLine($"    /// ODOO-ALIGNED PATTERN:");
+            sb.AppendLine($"    /// - Records and recordsets share the same interface (like Odoo)");
+            sb.AppendLine($"    /// - Id property is singleton-only, Ids is always available");
             sb.AppendLine($"    /// - Getters: Direct cache read (no pipeline overhead)");
             sb.AppendLine($"    /// - Setters: Delegate to Write() pipeline for extensibility");
             sb.AppendLine($"    /// </summary>");
             sb.AppendLine($"    public sealed class {className} : {interfaceList}, IRecordWrapper");
             sb.AppendLine("    {");
 
-            // Private field for handle - classes use private field + property
-            sb.AppendLine("        private readonly RecordHandle _handle;");
+            // Private fields for recordset-style wrapper
+            sb.AppendLine("        internal readonly IEnvironment _env;");
+            sb.AppendLine("        internal readonly ModelHandle _model;");
+            sb.AppendLine("        internal readonly RecordId[] _ids;");
             sb.AppendLine();
 
-            // Constructor
-            sb.AppendLine($"        public {className}(RecordHandle handle)");
+            // Primary constructor - takes array of IDs
+            sb.AppendLine(
+                $"        public {className}(IEnvironment env, ModelHandle model, RecordId[] ids)"
+            );
             sb.AppendLine("        {");
-            sb.AppendLine("            _handle = handle;");
+            sb.AppendLine("            _env = env;");
+            sb.AppendLine("            _model = model;");
+            sb.AppendLine("            _ids = ids;");
             sb.AppendLine("        }");
             sb.AppendLine();
 
-            // Handle property (from IRecordWrapper)
-            sb.AppendLine("        public RecordHandle Handle => _handle;");
+            // Backward-compatible constructor from RecordHandle
+            sb.AppendLine($"        public {className}(RecordHandle handle)");
+            sb.AppendLine(
+                "            : this(handle.Env, handle.Model, new[] { handle.Id }) {{ }}"
+            );
             sb.AppendLine();
 
-            // IOdooRecord properties
-            sb.AppendLine("        public RecordId Id => _handle.Id;");
-            sb.AppendLine("        public IEnvironment Env => _handle.Env;");
+            // Handle property (from IRecordWrapper) - singleton only
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine(
+                "        /// Get the RecordHandle for singleton access. Throws if not a singleton."
+            );
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        public RecordHandle Handle => _ids.Length == 1");
+            sb.AppendLine("            ? new RecordHandle(_env, _ids[0], _model)");
+            sb.AppendLine(
+                "            : throw new InvalidOperationException($\"Expected singleton {ModelName}({string.Join(\",\", _ids.Select(id => id.Value))}), got {_ids.Length} records\");"
+            );
+            sb.AppendLine();
+
+            // IOdooRecord properties - Id is singleton-only, Ids always available
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine(
+                "        /// Get the ID of this record. Throws if not a singleton (Odoo pattern)."
+            );
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        public RecordId Id => _ids.Length == 1");
+            sb.AppendLine("            ? _ids[0]");
+            sb.AppendLine(
+                "            : throw new InvalidOperationException($\"Expected singleton {ModelName}({string.Join(\",\", _ids.Select(id => id.Value))}), got {_ids.Length} records\");"
+            );
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine(
+                "        /// Get all IDs in this recordset. Always available (Odoo pattern)."
+            );
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        public RecordId[] Ids => _ids;");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// The environment context.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        public IEnvironment Env => _env;");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Number of records in this recordset.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        public int Count => _ids.Length;");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// True if this is a singleton (exactly one record).");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        public bool IsSingleton => _ids.Length == 1;");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Ensure this is a singleton. Throws if not.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        private void EnsureOne()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (_ids.Length != 1)");
+            sb.AppendLine(
+                "                throw new InvalidOperationException($\"Expected singleton {ModelName}({string.Join(\",\", _ids.Select(id => id.Value))}), got {_ids.Length} records\");"
+            );
+            sb.AppendLine("        }");
             sb.AppendLine();
 
             // IModel properties and methods
@@ -497,7 +563,12 @@ namespace Odoo.SourceGenerator
             sb.AppendLine(
                 $"            var pipeline = Env.GetPipeline<Action<RecordHandle, IRecordValues>>(\"{model.ModelName}\", \"write\");"
             );
-            sb.AppendLine("            pipeline(_handle, vals);");
+            sb.AppendLine("            // Write to all records in the recordset (Odoo pattern)");
+            sb.AppendLine("            foreach (var id in _ids)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                var handle = new RecordHandle(_env, id, _model);");
+            sb.AppendLine("                pipeline(handle, vals);");
+            sb.AppendLine("            }");
             sb.AppendLine("            return true;");
             sb.AppendLine("        }");
             sb.AppendLine();
@@ -511,6 +582,30 @@ namespace Odoo.SourceGenerator
                 "                vals as Dictionary<string, object?> ?? new Dictionary<string, object?>(vals));"
             );
             sb.AppendLine("            return Write(typedVals);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Create a new record of this model type.");
+            sb.AppendLine("        /// Calls the create pipeline for extensibility.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        public IModel Create(IRecordValues vals)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                $"            var pipeline = Env.GetPipeline<Func<IEnvironment, IRecordValues, IOdooRecord>>(\"{model.ModelName}\", \"create\");"
+            );
+            sb.AppendLine("            return (IModel)pipeline(Env, vals);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Create a new record using a dictionary (Python-style).");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        public IModel Create(IDictionary<string, object?> vals)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var typedVals = {className}Values.FromDictionary(");
+            sb.AppendLine(
+                "                vals as Dictionary<string, object?> ?? new Dictionary<string, object?>(vals));"
+            );
+            sb.AppendLine("            return Create(typedVals);");
             sb.AppendLine("        }");
             sb.AppendLine();
 
@@ -673,11 +768,12 @@ namespace Odoo.SourceGenerator
                         sb.AppendLine(
                             $"                // Delegate to WriteFromDict() pipeline - Odoo pattern"
                         );
+                        sb.AppendLine($"                EnsureOne();");
                         sb.AppendLine(
                             $"                var vals = new Dictionary<string, object?> {{ {{ \"{fieldName}\", value }} }};"
                         );
                         sb.AppendLine(
-                            $"                {className}Pipelines.WriteFromDict(_handle, vals);"
+                            $"                {className}Pipelines.WriteFromDict(Handle, vals);"
                         );
                         sb.AppendLine("            }");
                     }
@@ -690,18 +786,30 @@ namespace Odoo.SourceGenerator
             // Override Equals and GetHashCode for identity
             sb.AppendLine("        public override bool Equals(object? obj)");
             sb.AppendLine("        {");
-            sb.AppendLine(
-                $"            return obj is {className} other && _handle.Id == other._handle.Id && _handle.Model.Token == other._handle.Model.Token;"
-            );
+            sb.AppendLine($"            if (obj is not {className} other) return false;");
+            sb.AppendLine("            if (_ids.Length != other._ids.Length) return false;");
+            sb.AppendLine("            for (int i = 0; i < _ids.Length; i++)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                if (_ids[i] != other._ids[i]) return false;");
+            sb.AppendLine("            }");
+            sb.AppendLine("            return _model.Token == other._model.Token;");
             sb.AppendLine("        }");
             sb.AppendLine();
-            sb.AppendLine(
-                "        public override int GetHashCode() => HashCode.Combine(_handle.Id, _handle.Model.Token);"
-            );
+            sb.AppendLine("        public override int GetHashCode()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var hash = new HashCode();");
+            sb.AppendLine("            hash.Add(_model.Token);");
+            sb.AppendLine("            foreach (var id in _ids) hash.Add(id);");
+            sb.AppendLine("            return hash.ToHashCode();");
+            sb.AppendLine("        }");
             sb.AppendLine();
+            sb.AppendLine();
+            sb.AppendLine("        public override string ToString()");
+            sb.AppendLine("        {");
             sb.AppendLine(
-                $"        public override string ToString() => $\"{model.ModelName}({{Id}})\";"
+                $"            return _ids.Length == 1 ? $\"{model.ModelName}({{_ids[0].Value}})\" : $\"{model.ModelName}([{{string.Join(\", \", _ids.Select(id => id.Value))}}])\";"
             );
+            sb.AppendLine("        }");
 
             sb.AppendLine("    }");
             sb.AppendLine("}");

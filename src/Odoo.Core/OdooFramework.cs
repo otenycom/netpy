@@ -228,6 +228,19 @@ namespace Odoo.Core
         /// Write values using a dictionary (Python interop).
         /// </summary>
         bool Write(IDictionary<string, object?> vals);
+
+        /// <summary>
+        /// Create a new record of this model type.
+        /// Calls the create pipeline for extensibility.
+        /// </summary>
+        /// <param name="vals">Values for the new record</param>
+        /// <returns>The newly created record as IModel</returns>
+        IModel Create(IRecordValues vals);
+
+        /// <summary>
+        /// Create a new record using a dictionary (Python interop).
+        /// </summary>
+        IModel Create(IDictionary<string, object?> vals);
     }
 
     /// <summary>

@@ -368,5 +368,389 @@ public class DiamondInheritanceTests
         Assert.Contains("| Supplier", partner.DisplayName);
     }
 
+    [Fact]
+    public void IModel_CreateWithValues_CreatesNewRecord()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var existingPartner = env.Create(new ResPartnerValues { Name = "Existing" });
+
+        // Act - Use IModel.Create to create a new record (same model type)
+        var model = (IModel)existingPartner;
+        var newRecord = model.Create(new ResPartnerValues { Name = "Created Via IModel" });
+
+        // Assert
+        Assert.NotNull(newRecord);
+        Assert.IsAssignableFrom<IModel>(newRecord);
+        Assert.NotEqual(existingPartner.Id, newRecord.Id); // Different record
+        Assert.Equal("res.partner", newRecord.ModelName);
+
+        // Verify we can cast back to the concrete type and read values
+        var newPartner = (ResPartner)newRecord;
+        Assert.Equal("Created Via IModel", newPartner.Name);
+    }
+
+    [Fact]
+    public void IModel_CreateWithDictionary_CreatesNewRecord()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var existingPartner = env.Create(new ResPartnerValues { Name = "Existing" });
+
+        // Act - Use IModel.Create with dictionary (Python-style)
+        var model = (IModel)existingPartner;
+        var newRecord = model.Create(
+            new Dictionary<string, object?>
+            {
+                { "name", "Dict Created Partner" },
+                { "is_supplier", true },
+            }
+        );
+
+        // Assert
+        Assert.NotNull(newRecord);
+        Assert.IsAssignableFrom<IModel>(newRecord);
+
+        var newPartner = (ResPartner)newRecord;
+        Assert.Equal("Dict Created Partner", newPartner.Name);
+        Assert.True(((IPartnerPurchaseExtension)newPartner).IsSupplier);
+    }
+
+    [Fact]
+    public void IModel_Create_RoutesToCreatePipeline()
+    {
+        // This test demonstrates that IModel.Create routes through the pipeline to Create_Base.
+        //
+        // Flow:
+        //   IModel.Create(vals)
+        //     → Env.GetPipeline<Func<IEnvironment, IRecordValues, IOdooRecord>>("res.partner", "create")
+        //       → Create pipeline executes (with any overrides)
+        //         → BaseModel.Create_Base(env, modelName, vals)
+        //           → handler.ApplyToCache(vals, ...)
+        //           → Returns new record
+
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var existingPartner = env.Create(new ResPartnerValues { Name = "Seed Partner" });
+
+        // Act - Create via IModel which routes through pipeline
+        var model = (IModel)existingPartner;
+        var newRecord = model.Create(
+            new ResPartnerValues
+            {
+                Name = "Pipeline Test",
+                IsCompany = true,
+                IsSupplier = true,
+            }
+        );
+
+        // Assert - Record was created through pipeline
+        var newPartner = (ResPartner)newRecord;
+        Assert.Equal("Pipeline Test", newPartner.Name);
+        Assert.True(newPartner.IsCompany);
+        Assert.True(((IPartnerPurchaseExtension)newPartner).IsSupplier);
+
+        // DisplayName computed field was triggered (shows pipeline executed correctly)
+        Assert.Contains("Pipeline Test", newPartner.DisplayName);
+        Assert.Contains("| Company", newPartner.DisplayName);
+        Assert.Contains("| Supplier", newPartner.DisplayName);
+    }
+
+    [Fact]
+    public void IModel_Create_NewRecordHasDifferentId()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var first = env.Create(new ResPartnerValues { Name = "First" });
+        var second = env.Create(new ResPartnerValues { Name = "Second" });
+
+        // Act - Create third record via IModel interface
+        var model = (IModel)first;
+        var third = model.Create(new ResPartnerValues { Name = "Third" });
+
+        // Assert - All records have different IDs
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.NotEqual(first.Id, third.Id);
+        Assert.NotEqual(second.Id, third.Id);
+    }
+
+    #endregion
+
+    #region RecordSet/Record Unification Tests (Odoo-aligned)
+
+    [Fact]
+    public void RecordSetUnification_Ids_AlwaysAvailable()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner = (ResPartner)env.Create(new ResPartnerValues { Name = "Test" });
+
+        // Act
+        var ids = partner.Ids;
+
+        // Assert - Ids is always available (Odoo pattern)
+        Assert.NotNull(ids);
+        Assert.Single(ids);
+        Assert.Equal(partner.Id, ids[0]);
+    }
+
+    [Fact]
+    public void RecordSetUnification_Count_ReturnsRecordCount()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner = (ResPartner)env.Create(new ResPartnerValues { Name = "Test" });
+
+        // Act & Assert
+        Assert.Equal(1, partner.Count);
+    }
+
+    [Fact]
+    public void RecordSetUnification_IsSingleton_TrueForSingleRecord()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner = (ResPartner)env.Create(new ResPartnerValues { Name = "Test" });
+
+        // Assert
+        Assert.True(partner.IsSingleton);
+    }
+
+    [Fact]
+    public void RecordSetUnification_MultiRecordWrapper_IdsWorks()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner1 = env.Create(new ResPartnerValues { Name = "Partner 1" });
+        var partner2 = env.Create(new ResPartnerValues { Name = "Partner 2" });
+        var partner3 = env.Create(new ResPartnerValues { Name = "Partner 3" });
+
+        // Act - Create multi-record wrapper
+        var multiRecord = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id, partner2.Id, partner3.Id }
+        );
+
+        // Assert - Ids always works
+        Assert.Equal(3, multiRecord.Ids.Length);
+        Assert.Equal(partner1.Id, multiRecord.Ids[0]);
+        Assert.Equal(partner2.Id, multiRecord.Ids[1]);
+        Assert.Equal(partner3.Id, multiRecord.Ids[2]);
+    }
+
+    [Fact]
+    public void RecordSetUnification_MultiRecordWrapper_CountIs3()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner1 = env.Create(new ResPartnerValues { Name = "P1" });
+        var partner2 = env.Create(new ResPartnerValues { Name = "P2" });
+        var partner3 = env.Create(new ResPartnerValues { Name = "P3" });
+
+        // Act
+        var multiRecord = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id, partner2.Id, partner3.Id }
+        );
+
+        // Assert
+        Assert.Equal(3, multiRecord.Count);
+        Assert.False(multiRecord.IsSingleton);
+    }
+
+    [Fact]
+    public void RecordSetUnification_MultiRecord_IdThrows()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner1 = env.Create(new ResPartnerValues { Name = "P1" });
+        var partner2 = env.Create(new ResPartnerValues { Name = "P2" });
+
+        var multiRecord = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id, partner2.Id }
+        );
+
+        // Act & Assert - Id property throws for multi-record (Odoo pattern)
+        var ex = Assert.Throws<InvalidOperationException>(() => _ = multiRecord.Id);
+        Assert.Contains("Expected singleton", ex.Message);
+        Assert.Contains("got 2 records", ex.Message);
+    }
+
+    [Fact]
+    public void RecordSetUnification_MultiRecord_HandleThrows()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner1 = env.Create(new ResPartnerValues { Name = "P1" });
+        var partner2 = env.Create(new ResPartnerValues { Name = "P2" });
+
+        var multiRecord = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id, partner2.Id }
+        );
+
+        // Act & Assert - Handle property throws for multi-record
+        var ex = Assert.Throws<InvalidOperationException>(() => _ = multiRecord.Handle);
+        Assert.Contains("Expected singleton", ex.Message);
+    }
+
+    [Fact]
+    public void RecordSetUnification_MultiRecord_WriteAffectsAllRecords()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner1 = env.Create(new ResPartnerValues { Name = "P1", IsCustomer = false });
+        var partner2 = env.Create(new ResPartnerValues { Name = "P2", IsCustomer = false });
+        var partner3 = env.Create(new ResPartnerValues { Name = "P3", IsCustomer = false });
+
+        var multiRecord = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id, partner2.Id, partner3.Id }
+        );
+
+        // Act - Write to all records at once (Odoo pattern: records.write(vals))
+        multiRecord.Write(new ResPartnerValues { IsCustomer = true });
+
+        // Assert - All records were updated
+        Assert.True(partner1.IsCustomer);
+        Assert.True(partner2.IsCustomer);
+        Assert.True(partner3.IsCustomer);
+    }
+
+    [Fact]
+    public void RecordSetUnification_MultiRecord_PropertySetterThrows()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner1 = env.Create(new ResPartnerValues { Name = "P1" });
+        var partner2 = env.Create(new ResPartnerValues { Name = "P2" });
+
+        var multiRecord = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id, partner2.Id }
+        );
+
+        // Act & Assert - Property setter throws for multi-record (EnsureOne)
+        var ex = Assert.Throws<InvalidOperationException>(() => multiRecord.Name = "New Name");
+        Assert.Contains("Expected singleton", ex.Message);
+    }
+
+    [Fact]
+    public void RecordSetUnification_SingleRecord_PropertyGetterWorks()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner = env.Create(new ResPartnerValues { Name = "Single Record" });
+
+        // Act & Assert - Property getter works for singleton
+        Assert.Equal("Single Record", partner.Name);
+    }
+
+    [Fact]
+    public void RecordSetUnification_ToString_ShowsAllIds()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner1 = env.Create(new ResPartnerValues { Name = "P1" });
+        var partner2 = env.Create(new ResPartnerValues { Name = "P2" });
+
+        var singleRecord = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id }
+        );
+        var multiRecord = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id, partner2.Id }
+        );
+
+        // Assert - Single record shows ID in parentheses
+        Assert.Contains($"res.partner({partner1.Id.Value})", singleRecord.ToString());
+
+        // Assert - Multi-record shows IDs in brackets
+        var multiString = multiRecord.ToString();
+        Assert.Contains("res.partner([", multiString);
+        Assert.Contains(partner1.Id.Value.ToString(), multiString);
+        Assert.Contains(partner2.Id.Value.ToString(), multiString);
+    }
+
+    [Fact]
+    public void RecordSetUnification_EmptyRecordset_WorksCorrectly()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+
+        // Act - Create empty recordset
+        var emptyRecord = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            Array.Empty<RecordId>()
+        );
+
+        // Assert
+        Assert.Equal(0, emptyRecord.Count);
+        Assert.Empty(emptyRecord.Ids);
+        Assert.False(emptyRecord.IsSingleton);
+
+        // Id should throw for empty recordset
+        var ex = Assert.Throws<InvalidOperationException>(() => _ = emptyRecord.Id);
+        Assert.Contains("got 0 records", ex.Message);
+    }
+
+    [Fact]
+    public void RecordSetUnification_Equality_SameIds()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner1 = env.Create(new ResPartnerValues { Name = "P1" });
+        var partner2 = env.Create(new ResPartnerValues { Name = "P2" });
+
+        var recordset1 = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id, partner2.Id }
+        );
+        var recordset2 = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id, partner2.Id }
+        );
+
+        // Assert - Same IDs = equal
+        Assert.Equal(recordset1, recordset2);
+        Assert.Equal(recordset1.GetHashCode(), recordset2.GetHashCode());
+    }
+
+    [Fact]
+    public void RecordSetUnification_Equality_DifferentIds()
+    {
+        // Arrange
+        var env = CreateConfiguredEnvironment();
+        var partner1 = env.Create(new ResPartnerValues { Name = "P1" });
+        var partner2 = env.Create(new ResPartnerValues { Name = "P2" });
+
+        var recordset1 = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner1.Id }
+        );
+        var recordset2 = new ResPartner(
+            env,
+            ModelSchema.ResPartner.ModelToken,
+            new[] { partner2.Id }
+        );
+
+        // Assert - Different IDs = not equal
+        Assert.NotEqual(recordset1, recordset2);
+    }
+
     #endregion
 }
