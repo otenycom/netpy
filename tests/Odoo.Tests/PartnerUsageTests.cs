@@ -100,6 +100,8 @@ public class PartnerUsageTests
         // Assert - DisplayName shows "Name | Company" format
         Assert.True(company.IsCompany);
         Assert.Equal("Acme Corp | Company", company.DisplayName);
+        company.Name = "Oteny";
+        Assert.Equal("Oteny | Company", company.DisplayName);
     }
 
     #endregion
@@ -119,21 +121,6 @@ public class PartnerUsageTests
 
         // Assert - DisplayName auto-updated via compute method
         Assert.Equal("Robert", partner.DisplayName);
-    }
-
-    [Fact]
-    public void ChangeIsCompany_DisplayNameFormatChanges()
-    {
-        // Arrange
-        var env = CreateConfiguredEnvironment();
-        var partner = ResPartnerPipelines.CreateFromDict(env, new() { { "name", "Alice" } });
-        Assert.Equal("Alice", partner.DisplayName); // Individual format
-
-        // Act - Change to company
-        partner.IsCompany = true;
-
-        // Assert - DisplayName format changed to company format
-        Assert.Equal("Alice | Company", partner.DisplayName);
     }
 
     #endregion

@@ -23,9 +23,9 @@ namespace Odoo.Core
 
         /// <summary>
         /// Identity Map: Caches record instances to ensure reference equality.
-        /// Key is (ModelToken, RecordId), Value is the unified wrapper instance.
+        /// Key is (ModelHandle, RecordId), Value is the unified wrapper instance.
         /// </summary>
-        private readonly Dictionary<(int ModelToken, RecordId Id), IOdooRecord> _identityMap =
+        private readonly Dictionary<(ModelHandle Model, RecordId Id), IOdooRecord> _identityMap =
             new();
 
         /// <summary>
@@ -103,7 +103,7 @@ namespace Odoo.Core
             if (schema == null)
                 throw new KeyNotFoundException($"Model '{modelName}' not found");
 
-            var key = (schema.Token.Token, id);
+            var key = (schema.Token, id);
 
             if (_identityMap.TryGetValue(key, out var existing))
             {
@@ -133,18 +133,18 @@ namespace Odoo.Core
         /// Register a record in the identity map.
         /// Called when creating new records to ensure reference equality.
         /// </summary>
-        public void RegisterInIdentityMap(int modelToken, RecordId id, IOdooRecord record)
+        public void RegisterInIdentityMap(ModelHandle model, RecordId id, IOdooRecord record)
         {
-            var key = (modelToken, id);
+            var key = (model, id);
             _identityMap[key] = record;
         }
 
         /// <summary>
         /// Check if a record exists in the identity map.
         /// </summary>
-        public bool TryGetFromIdentityMap(int modelToken, RecordId id, out IOdooRecord? record)
+        public bool TryGetFromIdentityMap(ModelHandle model, RecordId id, out IOdooRecord? record)
         {
-            return _identityMap.TryGetValue((modelToken, id), out record);
+            return _identityMap.TryGetValue((model, id), out record);
         }
 
         /// <summary>
@@ -184,16 +184,16 @@ namespace Odoo.Core
         }
 
         /// <summary>
-        /// Get a record by model token and ID.
+        /// Get a record by model handle and ID.
         /// Used by RecordHandle.As&lt;T&gt;() for identity map lookups.
         /// </summary>
-        public T GetRecordByToken<T>(int modelToken, RecordId id)
+        public T GetRecordByToken<T>(ModelHandle model, RecordId id)
             where T : class, IOdooRecord
         {
             if (_modelRegistry == null)
                 throw new InvalidOperationException("Model registry is not initialized");
 
-            var key = (modelToken, id);
+            var key = (model, id);
 
             if (_identityMap.TryGetValue(key, out var existing))
             {
@@ -203,7 +203,7 @@ namespace Odoo.Core
             // Find the model name from token
             foreach (var schema in _modelRegistry.GetAllModels())
             {
-                if (schema.Token.Token == modelToken)
+                if (schema.Token == model)
                 {
                     var factory = _modelRegistry.GetRecordFactory(schema.ModelName);
                     var record = factory(this, id);
@@ -212,7 +212,7 @@ namespace Odoo.Core
                 }
             }
 
-            throw new KeyNotFoundException($"No model found with token {modelToken}");
+            throw new KeyNotFoundException($"No model found with token {model.Token}");
         }
 
         /// <summary>

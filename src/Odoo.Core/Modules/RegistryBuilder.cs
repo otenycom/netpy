@@ -9,7 +9,10 @@ namespace Odoo.Core.Modules
     public class RegistryBuilder
     {
         private readonly Dictionary<string, ModelSchema> _models = new();
-        private readonly Dictionary<(int, int), List<(int, int)>> _dependencies = new();
+        private readonly Dictionary<
+            (ModelHandle, FieldHandle),
+            List<(ModelHandle, FieldHandle)>
+        > _dependencies = new();
 
         public void ScanAssembly(Assembly assembly)
         {
@@ -26,10 +29,10 @@ namespace Odoo.Core.Modules
                 {
                     // Try to find generated token first
                     var modelToken = ResolveModelToken(assembly, modelName);
-                    if (modelToken.Token == 0)
+                    if (modelToken.Token == 0L)
                     {
                         // Fallback to stable hash
-                        modelToken = new ModelHandle(GetStableHashCode(modelName));
+                        modelToken = new ModelHandle(StableHash.GetStableHashCode(modelName));
                     }
 
                     schema = new ModelSchema(modelName, modelToken);
@@ -54,11 +57,11 @@ namespace Odoo.Core.Modules
                         {
                             // Try to find generated token first
                             var fieldToken = ResolveFieldToken(assembly, modelName, prop.Name);
-                            if (fieldToken.Token == 0)
+                            if (fieldToken.Token == 0L)
                             {
                                 // Fallback to stable hash
                                 fieldToken = new FieldHandle(
-                                    GetStableHashCode($"{modelName}.{fieldName}")
+                                    StableHash.GetStableHashCode($"{modelName}.{fieldName}")
                                 );
                             }
 
@@ -84,27 +87,27 @@ namespace Odoo.Core.Modules
                                 // TODO: Handle dot notation for related fields
                                 if (!sourceFieldName.Contains("."))
                                 {
-                                    // Calculate source field token (stable hash of "model.field")
-                                    var sourceTokenVal = GetStableHashCode(
-                                        $"{modelName}.{sourceFieldName}"
+                                    // Create source field handle (stable hash of "model.field")
+                                    var sourceFieldHandle = new FieldHandle(
+                                        StableHash.GetStableHashCode(
+                                            $"{modelName}.{sourceFieldName}"
+                                        ),
+                                        sourceFieldName
                                     );
-                                    var sourceKey = (dependentModelToken.Token, sourceTokenVal);
+                                    var sourceKey = (dependentModelToken, sourceFieldHandle);
 
                                     if (!_dependencies.TryGetValue(sourceKey, out var dependents))
                                     {
-                                        dependents = new List<(int, int)>();
+                                        dependents = new List<(ModelHandle, FieldHandle)>();
                                         _dependencies[sourceKey] = dependents;
                                     }
 
-                                    var dep = (
-                                        dependentModelToken.Token,
-                                        dependentFieldToken.Token
-                                    );
+                                    var dep = (dependentModelToken, dependentFieldToken);
                                     if (!dependents.Contains(dep))
                                     {
                                         dependents.Add(dep);
                                         Console.WriteLine(
-                                            $"[Registry] Registered dependency: {modelName}.{sourceFieldName} ({sourceTokenVal}) -> {modelName}.{fieldName} ({dependentFieldToken.Token})"
+                                            $"[Registry] Registered dependency: {modelName}.{sourceFieldName} ({sourceFieldHandle.Token}) -> {modelName}.{fieldName} ({dependentFieldToken.Token})"
                                         );
                                     }
                                 }
@@ -118,20 +121,6 @@ namespace Odoo.Core.Modules
         public ModelRegistry Build()
         {
             return new ModelRegistry(_models, _dependencies);
-        }
-
-        // Deterministic hash code for stable tokens across compilations/runs
-        private static int GetStableHashCode(string str)
-        {
-            unchecked
-            {
-                int hash = 23;
-                foreach (char c in str)
-                {
-                    hash = hash * 31 + c;
-                }
-                return hash;
-            }
         }
 
         private ModelHandle ResolveModelToken(Assembly assembly, string modelName)

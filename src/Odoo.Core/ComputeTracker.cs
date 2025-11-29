@@ -45,16 +45,12 @@ namespace Odoo.Core
                 return;
             }
 
-            var dependents = _registry.GetDependents(model.Token, field.Token);
+            var dependents = _registry.GetDependents(model, field);
 
             // Mark all dependent fields for recomputation
-            foreach (var (depModelToken, depFieldToken) in dependents)
+            foreach (var (depModel, depField) in dependents)
             {
-                MarkToRecompute(
-                    new ModelHandle(depModelToken),
-                    recordId,
-                    new FieldHandle(depFieldToken)
-                );
+                MarkToRecompute(depModel, recordId, depField);
             }
         }
 
@@ -223,10 +219,7 @@ namespace Odoo.Core
                 return Enumerable.Empty<(ModelHandle, FieldHandle)>();
             }
 
-            var dependents = _registry.GetDependents(model.Token, field.Token);
-            return dependents.Select(d =>
-                (new ModelHandle(d.ModelToken), new FieldHandle(d.FieldToken))
-            );
+            return _registry.GetDependents(model, field);
         }
     }
 }

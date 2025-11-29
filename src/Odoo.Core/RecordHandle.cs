@@ -38,7 +38,7 @@ namespace Odoo.Core
             // Try to get from identity map first
             if (
                 Env is OdooEnvironment odooEnv
-                && odooEnv.TryGetFromIdentityMap(Model.Token, Id, out var existing)
+                && odooEnv.TryGetFromIdentityMap(Model, Id, out var existing)
                 && existing is T typed
             )
             {
@@ -49,7 +49,7 @@ namespace Odoo.Core
             if (Env is OdooEnvironment env)
             {
                 // This will create and cache the instance
-                return env.GetRecordByToken<T>(Model.Token, Id);
+                return env.GetRecordByToken<T>(Model, Id);
             }
 
             throw new InvalidOperationException(

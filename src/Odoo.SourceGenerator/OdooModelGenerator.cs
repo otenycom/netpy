@@ -17,8 +17,8 @@ namespace Odoo.SourceGenerator
     [Generator]
     public class OdooModelGenerator : ISourceGenerator
     {
-        private Dictionary<string, int> _modelTokens = new();
-        private Dictionary<(string Model, string Field), int> _fieldTokens = new();
+        private Dictionary<string, long> _modelTokens = new();
+        private Dictionary<(string Model, string Field), long> _fieldTokens = new();
 
         public void Initialize(GeneratorInitializationContext context)
         {
@@ -264,7 +264,7 @@ namespace Odoo.SourceGenerator
                 sb.AppendLine($"        public static class {model.ClassName}");
                 sb.AppendLine("        {");
                 sb.AppendLine(
-                    $"            public static readonly ModelHandle ModelToken = new({model.ModelToken});"
+                    $"            public static readonly ModelHandle ModelToken = new({model.ModelToken}, \"{model.ModelName}\");"
                 );
                 sb.AppendLine(
                     $"            public const string ModelName = \"{model.ModelName}\";"
@@ -280,7 +280,7 @@ namespace Odoo.SourceGenerator
 
                     sb.AppendLine($"            /// <summary>Field: {fieldName}</summary>");
                     sb.AppendLine(
-                        $"            public static readonly FieldHandle {prop.Name} = new({token});"
+                        $"            public static readonly FieldHandle {prop.Name} = new({token}, \"{fieldName}\");"
                     );
                 }
 
@@ -843,7 +843,7 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("            if (env is OdooEnvironment odooEnv)");
             sb.AppendLine("            {");
             sb.AppendLine(
-                "                odooEnv.RegisterInIdentityMap(modelToken.Token, newId, record);"
+                "                odooEnv.RegisterInIdentityMap(modelToken, newId, record);"
             );
             sb.AppendLine("            }");
             sb.AppendLine();
@@ -1812,12 +1812,14 @@ namespace Odoo.SourceGenerator
         /// <summary>
         /// Deterministic hash code for stable tokens across compilations.
         /// This ensures tokens are unique across different assemblies.
+        /// Uses the same algorithm as Odoo.Core.StableHash.GetStableHashCode.
+        /// Returns long for larger hash space.
         /// </summary>
-        private static int GetStableHashCode(string str)
+        private static long GetStableHashCode(string str)
         {
             unchecked
             {
-                int hash = 23;
+                long hash = 23;
                 foreach (char c in str)
                 {
                     hash = hash * 31 + c;
@@ -1830,7 +1832,7 @@ namespace Odoo.SourceGenerator
         {
             public INamedTypeSymbol InterfaceSymbol { get; set; } = null!;
             public string ModelName { get; set; } = "";
-            public int ModelToken { get; set; }
+            public long ModelToken { get; set; }
             public List<IPropertySymbol> Properties { get; set; } = new();
         }
 
@@ -1841,7 +1843,7 @@ namespace Odoo.SourceGenerator
         private class UnifiedModelInfo
         {
             public string ModelName { get; set; } = "";
-            public int ModelToken { get; set; }
+            public long ModelToken { get; set; }
             public string ClassName { get; set; } = "";
             public List<INamedTypeSymbol> Interfaces { get; set; } = new();
             public List<IPropertySymbol> Properties { get; set; } = new();
@@ -2218,7 +2220,9 @@ namespace Odoo.SourceGenerator
                 sb.AppendLine(
                     $"            // Factory for {model.ModelName} - unified wrapper implementing {model.Interfaces.Count} interface(s)"
                 );
-                sb.AppendLine($"            modelRegistry.RegisterFactory(\"{model.ModelName}\", ");
+                sb.AppendLine(
+                    $"            modelRegistry.RegisterFactory(ModelSchema.{className}.ModelToken, "
+                );
                 sb.AppendLine(
                     $"                (env, id) => new {className}(new RecordHandle(env, id, ModelSchema.{className}.ModelToken)));"
                 );
