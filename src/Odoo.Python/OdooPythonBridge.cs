@@ -1,7 +1,7 @@
-using Odoo.Core;
-using Python.Runtime;
 using System;
 using System.Collections.Generic;
+using Odoo.Core;
+using Python.Runtime;
 
 namespace Odoo.Python
 {
@@ -44,11 +44,11 @@ namespace Odoo.Python
         public T ExecuteModuleMethod<T>(string moduleName, string methodName, params object[] args)
         {
             var module = _moduleLoader.LoadModule(moduleName);
-            
+
             using (Py.GIL())
             {
                 dynamic method = module.GetAttr(methodName);
-                
+
                 // Build arguments array starting with environment
                 var allArgs = new dynamic[args.Length + 1];
                 allArgs[0] = _environment.ToPython();
@@ -56,7 +56,7 @@ namespace Odoo.Python
                 {
                     allArgs[i + 1] = args[i].ToPython();
                 }
-                
+
                 // Call Python function directly with arguments
                 dynamic result = args.Length switch
                 {
@@ -65,9 +65,11 @@ namespace Odoo.Python
                     2 => method(allArgs[0], allArgs[1], allArgs[2]),
                     3 => method(allArgs[0], allArgs[1], allArgs[2], allArgs[3]),
                     4 => method(allArgs[0], allArgs[1], allArgs[2], allArgs[3], allArgs[4]),
-                    _ => throw new NotSupportedException($"Too many arguments ({args.Length}). Maximum 4 supported.")
+                    _ => throw new NotSupportedException(
+                        $"Too many arguments ({args.Length}). Maximum 4 supported."
+                    ),
                 };
-                
+
                 return result.As<T>();
             }
         }
@@ -104,7 +106,7 @@ namespace Odoo.Python
                     {
                         scope.Set("record", record.ToPython());
                         scope.Set("env", _environment.ToPython());
-                        
+
                         var result = scope.Exec(pythonCode);
                         return result.As<T>();
                     }
@@ -119,12 +121,14 @@ namespace Odoo.Python
         public void RegisterModelExtension(string modelName, string moduleName)
         {
             var module = _moduleLoader.LoadModule(moduleName);
-            
+
             using (Py.GIL())
             {
                 // Store the extension for later use
                 // In a real implementation, this would integrate with the model registry
-                Console.WriteLine($"Registered Python extension for model '{modelName}' from module '{moduleName}'");
+                Console.WriteLine(
+                    $"Registered Python extension for model '{modelName}' from module '{moduleName}'"
+                );
             }
         }
     }
@@ -137,12 +141,15 @@ namespace Odoo.Python
         /// <summary>
         /// Create a validator function from Python code.
         /// </summary>
-        public static Func<IOdooRecord, bool> CreateValidator(string pythonCode, PythonModuleLoader loader)
+        public static Func<IOdooRecord, bool> CreateValidator(
+            string pythonCode,
+            PythonModuleLoader loader
+        )
         {
             return (record) =>
             {
                 loader.Initialize();
-                
+
                 using (Py.GIL())
                 {
                     using (var scope = Py.CreateScope())
@@ -158,12 +165,15 @@ namespace Odoo.Python
         /// <summary>
         /// Create a domain filter from Python code.
         /// </summary>
-        public static Func<IOdooRecord, bool> CreateDomainFilter(string pythonExpression, PythonModuleLoader loader)
+        public static Func<IOdooRecord, bool> CreateDomainFilter(
+            string pythonExpression,
+            PythonModuleLoader loader
+        )
         {
             return (record) =>
             {
                 loader.Initialize();
-                
+
                 using (Py.GIL())
                 {
                     using (var scope = Py.CreateScope())

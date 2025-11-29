@@ -5,15 +5,15 @@ namespace Odoo.Core.Modules
     public class FieldNameResolver
     {
         private readonly ModelRegistry _registry;
-        
+
         // Cache: (modelName, fieldName) -> FieldHandle
         private readonly Dictionary<(string, string), FieldHandle> _cache = new();
-        
+
         public FieldNameResolver(ModelRegistry registry)
         {
             _registry = registry;
         }
-        
+
         public FieldHandle GetFieldHandle(string modelName, string fieldName)
         {
             var key = (modelName, fieldName);
@@ -32,7 +32,9 @@ namespace Odoo.Core.Modules
                 }
                 else
                 {
-                    throw new KeyNotFoundException($"Field '{fieldName}' not found on model '{modelName}'");
+                    throw new KeyNotFoundException(
+                        $"Field '{fieldName}' not found on model '{modelName}'"
+                    );
                 }
             }
             return handle;

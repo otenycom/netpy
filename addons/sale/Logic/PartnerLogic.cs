@@ -45,11 +45,9 @@ namespace Odoo.Sale.Logic
 
         /// <summary>
         /// Override for write pipeline - adds sale-specific validation.
-        /// Uses IRecordValues interface for cross-assembly compatibility.
         ///
-        /// Because ResPartnerValues implements IRecordValues&lt;T&gt; for ALL visible interfaces,
-        /// you can cast to the specific type for type-safe access:
-        ///   if (vals is IRecordValues&lt;IPartnerSaleExtension&gt;) { ... }
+        /// The signature uses IPartnerSaleExtensionValues which extends IRecordValues&lt;IPartnerSaleExtension&gt;.
+        /// This provides BOTH type-safe property access (vals.CreditLimit) AND pipeline compatibility.
         ///
         /// This demonstrates the Odoo pattern where modules can intercept and modify
         /// write operations to add business logic (validation, computed fields, etc.).
@@ -57,34 +55,32 @@ namespace Odoo.Sale.Logic
         [OdooLogic("res.partner", "write")]
         public static void Write_SaleOverride(
             RecordHandle handle,
-            IRecordValues vals,
+            IPartnerSaleExtensionValues vals,
             Action<RecordHandle, IRecordValues> super
         )
         {
             Console.WriteLine("[Sale] Write override: validating partner data...");
 
-            // IRecordValues provides ToDictionary() and GetSetFields() for field access
-            var dict = vals.ToDictionary();
+            // Log which fields are being written - vals is both IRecordValues AND has properties
             foreach (var fieldName in vals.GetSetFields())
             {
-                Console.WriteLine($"[Sale]   Field being written: {fieldName} = {dict[fieldName]}");
-            }
-
-            // Type-safe check using multi-interface implementation
-            // ResPartnerValues now implements IRecordValues<T> for ALL visible interfaces,
-            // so this cast will succeed for values from any downstream assembly!
-            if (vals is IRecordValues<IPartnerSaleExtension> saleVals)
-            {
                 Console.WriteLine(
-                    "[Sale]   ✓ Successfully cast to IRecordValues<IPartnerSaleExtension>"
+                    $"[Sale]   Field being written: {fieldName} = {vals.Get<object>(fieldName)}"
                 );
-                // Now you have compile-time proof this is partner-compatible
             }
 
-            // PRE-SUPER: Business logic goes here
-            // Example: Validate credit limit, compute derived fields, etc.
+            // PRE-SUPER: TYPE-SAFE property access - NO CAST NEEDED!
+            // vals.CreditLimit is a RecordValueField<decimal> with:
+            //   - .IsSet  - whether the field was explicitly set
+            //   - .Value  - the actual value
+            if (vals.CreditLimit.IsSet && vals.CreditLimit.Value < 0)
+            {
+                throw new Exception("Credit limit cannot be negative!");
+            }
 
             // Call next in pipeline (eventually reaches base write)
+            // IPartnerSaleExtensionValues extends IRecordValues<IPartnerSaleExtension>
+            // which in turn extends IRecordValues, so no cast needed
             super(handle, vals);
 
             Console.WriteLine("[Sale] Write override: complete.");

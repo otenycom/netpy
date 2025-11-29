@@ -7,13 +7,13 @@ namespace Odoo.Base.Models
     {
         [OdooField("name")]
         string Name { get; set; }
-        
+
         [OdooField("email")]
         string? Email { get; set; }
-        
+
         [OdooField("is_company")]
         bool IsCompany { get; set; }
-        
+
         /// <summary>
         /// Computed display name field.
         /// Shows "Name | Company" for companies, or just "Name" for individuals.
@@ -27,6 +27,6 @@ namespace Odoo.Base.Models
         [OdooField("display_name")]
         [OdooCompute("_compute_display_name")]
         [OdooDepends("name", "is_company")]
-        string DisplayName { get; set; }  // Setter for compute method assignment
+        string DisplayName { get; set; } // Setter for compute method assignment
     }
 }

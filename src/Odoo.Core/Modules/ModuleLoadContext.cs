@@ -7,7 +7,8 @@ namespace Odoo.Core.Modules
     {
         private readonly string _modulePath;
 
-        public ModuleLoadContext(string modulePath) : base(isCollectible: true)
+        public ModuleLoadContext(string modulePath)
+            : base(isCollectible: true)
         {
             _modulePath = modulePath;
         }

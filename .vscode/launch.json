@@ -69,7 +69,9 @@
             "request": "launch",
             "preLaunchTask": "build",
             "program": "${workspaceFolder}/samples/Odoo.Demo/bin/Debug/net10.0/Odoo.Demo.dll",
-            "args": ["1"],
+            "args": [
+                "1"
+            ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "stopAtEntry": false,
@@ -84,7 +86,9 @@
             "request": "launch",
             "preLaunchTask": "build",
             "program": "${workspaceFolder}/samples/Odoo.Demo/bin/Debug/net10.0/Odoo.Demo.dll",
-            "args": ["5"],
+            "args": [
+                "5"
+            ],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "stopAtEntry": false,

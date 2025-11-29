@@ -1,5 +1,5 @@
-using Odoo.Core;
 using Odoo.Base.Models;
+using Odoo.Core;
 
 namespace Odoo.Sale.Models
 {
@@ -13,7 +13,7 @@ namespace Odoo.Sale.Models
     {
         [OdooField("is_customer")]
         bool IsCustomer { get; set; }
-        
+
         [OdooField("credit_limit")]
         decimal CreditLimit { get; set; }
     }

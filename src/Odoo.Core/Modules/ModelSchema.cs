@@ -11,20 +11,20 @@ namespace Odoo.Core.Modules
     public class ModelSchema
     {
         // --- Basic Properties ---
-        
+
         public string ModelName { get; }
         public List<Type> ContributingInterfaces { get; }
         public Dictionary<string, FieldSchema> Fields { get; }
         public ModelHandle Token { get; }
 
         // --- Computed Fields ---
-        
+
         /// <summary>
         /// List of computed field names in this model.
         /// Used for iterating computed fields during recomputation.
         /// </summary>
         public List<string> ComputedFields { get; } = new();
-        
+
         /// <summary>
         /// List of stored computed field names.
         /// These are recomputed when dependencies change.
@@ -32,13 +32,13 @@ namespace Odoo.Core.Modules
         public List<string> StoredComputedFields { get; } = new();
 
         // --- Field Dependencies ---
-        
+
         /// <summary>
         /// Dependency graph: field name -> list of dependent computed field names.
         /// When a field changes, all dependent fields need recomputation.
         /// </summary>
         public Dictionary<string, List<string>> FieldDependents { get; } = new();
-        
+
         /// <summary>
         /// Reverse dependency graph: computed field name -> list of fields it depends on.
         /// Used for understanding what triggers a computed field.
@@ -46,13 +46,13 @@ namespace Odoo.Core.Modules
         public Dictionary<string, List<string>> FieldDependencies { get; } = new();
 
         // --- Pipelines ---
-        
+
         /// <summary>
         /// The write pipeline delegate type for this model.
         /// Signature: Action&lt;RecordHandle[], Dictionary&lt;string, object?&gt;&gt;
         /// </summary>
         public Type? WritePipelineType { get; set; }
-        
+
         /// <summary>
         /// The create pipeline delegate type for this model.
         /// Signature: Func&lt;IEnvironment, Dictionary&lt;string, object?&gt;, RecordHandle&gt;
@@ -79,11 +79,11 @@ namespace Odoo.Core.Modules
             {
                 ComputedFields.Add(fieldName);
             }
-            
+
             // Store dependencies for the computed field
             var depList = dependencies.ToList();
             FieldDependencies[fieldName] = depList;
-            
+
             // Build reverse mapping: for each dependency, register this field as dependent
             foreach (var dep in depList)
             {
@@ -92,13 +92,13 @@ namespace Odoo.Core.Modules
                     dependents = new List<string>();
                     FieldDependents[dep] = dependents;
                 }
-                
+
                 if (!dependents.Contains(fieldName))
                 {
                     dependents.Add(fieldName);
                 }
             }
-            
+
             // Mark the field schema as having dependents
             foreach (var dep in depList)
             {
@@ -116,12 +116,12 @@ namespace Odoo.Core.Modules
         public void RegisterStoredComputedField(string fieldName, IEnumerable<string> dependencies)
         {
             RegisterComputedField(fieldName, dependencies);
-            
+
             if (!StoredComputedFields.Contains(fieldName))
             {
                 StoredComputedFields.Add(fieldName);
             }
-            
+
             if (Fields.TryGetValue(fieldName, out var field))
             {
                 field.IsStored = true;

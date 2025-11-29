@@ -36,4 +36,59 @@ namespace Odoo.Core
     /// <typeparam name="TRecord">The record type this values class creates</typeparam>
     public interface IRecordValues<TRecord> : IRecordValues
         where TRecord : IOdooRecord { }
+
+    /// <summary>
+    /// Extension methods for IRecordValues providing type-safe field access.
+    /// </summary>
+    public static class RecordValuesExtensions
+    {
+        /// <summary>
+        /// Get a field value with type safety.
+        /// Returns null if the field is not set.
+        /// </summary>
+        /// <typeparam name="T">Expected value type</typeparam>
+        /// <param name="vals">The values object</param>
+        /// <param name="fieldName">Odoo field name (snake_case)</param>
+        /// <returns>The value or null if not set</returns>
+        public static T? Get<T>(this IRecordValues vals, string fieldName)
+        {
+            var dict = vals.ToDictionary();
+            if (dict.TryGetValue(fieldName, out var value) && value is T typedValue)
+            {
+                return typedValue;
+            }
+            return default;
+        }
+
+        /// <summary>
+        /// Check if a field is set and get its value in one call.
+        /// </summary>
+        /// <typeparam name="T">Expected value type</typeparam>
+        /// <param name="vals">The values object</param>
+        /// <param name="fieldName">Odoo field name (snake_case)</param>
+        /// <param name="value">The value if set</param>
+        /// <returns>True if field was set and has correct type</returns>
+        public static bool TryGet<T>(this IRecordValues vals, string fieldName, out T value)
+        {
+            var dict = vals.ToDictionary();
+            if (dict.TryGetValue(fieldName, out var obj) && obj is T typedValue)
+            {
+                value = typedValue;
+                return true;
+            }
+            value = default!;
+            return false;
+        }
+
+        /// <summary>
+        /// Check if a specific field is set.
+        /// </summary>
+        /// <param name="vals">The values object</param>
+        /// <param name="fieldName">Odoo field name (snake_case)</param>
+        /// <returns>True if field is set</returns>
+        public static bool IsSet(this IRecordValues vals, string fieldName)
+        {
+            return vals.GetSetFields().Contains(fieldName);
+        }
+    }
 }

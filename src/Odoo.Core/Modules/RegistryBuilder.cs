@@ -13,7 +13,8 @@ namespace Odoo.Core.Modules
 
         public void ScanAssembly(Assembly assembly)
         {
-            var types = assembly.GetTypes()
+            var types = assembly
+                .GetTypes()
                 .Where(t => t.IsInterface && t.GetCustomAttribute<OdooModelAttribute>() != null);
 
             foreach (var type in types)
@@ -43,12 +44,12 @@ namespace Odoo.Core.Modules
                     if (fieldAttr != null)
                     {
                         var fieldName = fieldAttr.TechnicalName;
-                        
+
                         // Only add if not already present (first one wins? or merge?)
                         // Usually base fields are defined first if we load in order.
                         // If an override re-defines a field, we might want to update metadata.
                         // For now, we'll assume the first definition stands, or we can overwrite.
-                        
+
                         if (!schema.Fields.ContainsKey(fieldName))
                         {
                             // Try to find generated token first
@@ -56,9 +57,11 @@ namespace Odoo.Core.Modules
                             if (fieldToken.Token == 0)
                             {
                                 // Fallback to stable hash
-                                fieldToken = new FieldHandle(GetStableHashCode($"{modelName}.{fieldName}"));
+                                fieldToken = new FieldHandle(
+                                    GetStableHashCode($"{modelName}.{fieldName}")
+                                );
                             }
-                            
+
                             var fieldSchema = new FieldSchema(
                                 fieldName,
                                 prop.PropertyType,
@@ -82,7 +85,9 @@ namespace Odoo.Core.Modules
                                 if (!sourceFieldName.Contains("."))
                                 {
                                     // Calculate source field token (stable hash of "model.field")
-                                    var sourceTokenVal = GetStableHashCode($"{modelName}.{sourceFieldName}");
+                                    var sourceTokenVal = GetStableHashCode(
+                                        $"{modelName}.{sourceFieldName}"
+                                    );
                                     var sourceKey = (dependentModelToken.Token, sourceTokenVal);
 
                                     if (!_dependencies.TryGetValue(sourceKey, out var dependents))
@@ -91,11 +96,16 @@ namespace Odoo.Core.Modules
                                         _dependencies[sourceKey] = dependents;
                                     }
 
-                                    var dep = (dependentModelToken.Token, dependentFieldToken.Token);
+                                    var dep = (
+                                        dependentModelToken.Token,
+                                        dependentFieldToken.Token
+                                    );
                                     if (!dependents.Contains(dep))
                                     {
                                         dependents.Add(dep);
-                                        Console.WriteLine($"[Registry] Registered dependency: {modelName}.{sourceFieldName} ({sourceTokenVal}) -> {modelName}.{fieldName} ({dependentFieldToken.Token})");
+                                        Console.WriteLine(
+                                            $"[Registry] Registered dependency: {modelName}.{sourceFieldName} ({sourceTokenVal}) -> {modelName}.{fieldName} ({dependentFieldToken.Token})"
+                                        );
                                     }
                                 }
                             }
@@ -129,14 +139,14 @@ namespace Odoo.Core.Modules
             // Try to find Odoo.Generated.{SafeAssemblyName}.ModelSchema
             var safeName = assembly.GetName().Name!.Replace(".", "");
             var schemaType = assembly.GetType($"Odoo.Generated.{safeName}.ModelSchema");
-            
+
             if (schemaType != null)
             {
                 // Find nested class for model
                 // The generator uses the interface name minus 'I' as the class name
                 // But here we only have modelName (e.g. "res.partner")
                 // We need to map modelName back to class name, or search all nested types
-                
+
                 foreach (var nestedType in schemaType.GetNestedTypes())
                 {
                     var nameField = nestedType.GetField("ModelName");
@@ -150,15 +160,19 @@ namespace Odoo.Core.Modules
                     }
                 }
             }
-            
+
             return default;
         }
 
-        private FieldHandle ResolveFieldToken(Assembly assembly, string modelName, string propertyName)
+        private FieldHandle ResolveFieldToken(
+            Assembly assembly,
+            string modelName,
+            string propertyName
+        )
         {
             var safeName = assembly.GetName().Name!.Replace(".", "");
             var schemaType = assembly.GetType($"Odoo.Generated.{safeName}.ModelSchema");
-            
+
             if (schemaType != null)
             {
                 foreach (var nestedType in schemaType.GetNestedTypes())
@@ -174,7 +188,7 @@ namespace Odoo.Core.Modules
                     }
                 }
             }
-            
+
             return default;
         }
     }

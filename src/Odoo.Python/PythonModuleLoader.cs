@@ -1,7 +1,7 @@
-using Python.Runtime;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Python.Runtime;
 
 namespace Odoo.Python
 {
@@ -36,7 +36,7 @@ namespace Odoo.Python
             using (Py.GIL())
             {
                 dynamic sys = Py.Import("sys");
-                
+
                 // Add modules path to Python path
                 if (Directory.Exists(_modulesPath))
                 {
@@ -44,7 +44,8 @@ namespace Odoo.Python
                 }
 
                 // Set up any required Python formatter
-                global::Python.Runtime.RuntimeData.FormatterType = typeof(global::Python.Runtime.NoopFormatter);
+                global::Python.Runtime.RuntimeData.FormatterType =
+                    typeof(global::Python.Runtime.NoopFormatter);
             }
 
             _isInitialized = true;
@@ -73,7 +74,9 @@ namespace Odoo.Python
                 catch (PythonException ex)
                 {
                     throw new InvalidOperationException(
-                        $"Failed to load Python module '{moduleName}': {ex.Message}", ex);
+                        $"Failed to load Python module '{moduleName}': {ex.Message}",
+                        ex
+                    );
                 }
             }
         }
@@ -108,18 +111,18 @@ namespace Odoo.Python
         public T CallFunction<T>(string moduleName, string functionName, params object[] args)
         {
             var module = LoadModule(moduleName);
-            
+
             using (Py.GIL())
             {
                 dynamic func = module.GetAttr(functionName);
-                
+
                 // Convert arguments to Python objects
                 var pyArgs = new dynamic[args.Length];
                 for (int i = 0; i < args.Length; i++)
                 {
                     pyArgs[i] = args[i].ToPython();
                 }
-                
+
                 // Call Python function directly with arguments expanded
                 dynamic result = args.Length switch
                 {
@@ -129,9 +132,11 @@ namespace Odoo.Python
                     3 => func(pyArgs[0], pyArgs[1], pyArgs[2]),
                     4 => func(pyArgs[0], pyArgs[1], pyArgs[2], pyArgs[3]),
                     5 => func(pyArgs[0], pyArgs[1], pyArgs[2], pyArgs[3], pyArgs[4]),
-                    _ => throw new NotSupportedException($"Too many arguments ({args.Length}). Maximum 5 supported.")
+                    _ => throw new NotSupportedException(
+                        $"Too many arguments ({args.Length}). Maximum 5 supported."
+                    ),
                 };
-                
+
                 return result.As<T>();
             }
         }
@@ -155,7 +160,7 @@ namespace Odoo.Python
         public void Dispose()
         {
             _loadedModules.Clear();
-            
+
             if (PythonEngine.IsInitialized)
             {
                 // Note: Be careful with PythonEngine.Shutdown() as it can only be called once

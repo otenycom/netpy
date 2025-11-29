@@ -9,7 +9,12 @@ namespace Odoo.Core.Modules
         public string? PythonModulePath { get; }
         public string DirectoryPath { get; }
 
-        public LoadedModule(ModuleManifest manifest, string directoryPath, Assembly? assembly = null, string? pythonModulePath = null)
+        public LoadedModule(
+            ModuleManifest manifest,
+            string directoryPath,
+            Assembly? assembly = null,
+            string? pythonModulePath = null
+        )
         {
             Manifest = manifest;
             DirectoryPath = directoryPath;

@@ -11,7 +11,7 @@ namespace Odoo.Core.Modules
     public class ModuleLoader
     {
         private readonly string _addonsPath;
-        
+
         public ModuleLoader(string addonsPath)
         {
             _addonsPath = addonsPath;
@@ -27,7 +27,7 @@ namespace Odoo.Core.Modules
 
             // 3. Loading: Load assemblies in order
             var loadedModules = new List<LoadedModule>();
-            
+
             foreach (var manifest in sortedManifests)
             {
                 string moduleDir = Path.Combine(_addonsPath, manifest.Name);
@@ -44,11 +44,15 @@ namespace Odoo.Core.Modules
                         {
                             // Use Default context for simplicity and to ensure shared types (like IOdooRecord) match
                             asm = AssemblyLoadContext.Default.LoadFromAssemblyPath(dllPath);
-                            Console.WriteLine($"[Loader] Assembly loaded: {asm.GetName().Name} with {asm.GetTypes().Length} types");
+                            Console.WriteLine(
+                                $"[Loader] Assembly loaded: {asm.GetName().Name} with {asm.GetTypes().Length} types"
+                            );
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[Loader] Error loading assembly {dllPath}: {ex.Message}");
+                            Console.WriteLine(
+                                $"[Loader] Error loading assembly {dllPath}: {ex.Message}"
+                            );
                         }
                     }
                     else
@@ -65,7 +69,7 @@ namespace Odoo.Core.Modules
 
                 var loadedModule = new LoadedModule(manifest, moduleDir, asm, pythonPath);
                 loadedModules.Add(loadedModule);
-                
+
                 Console.WriteLine($"[Loader] Loaded Module: {manifest.Name} ({manifest.Version})");
             }
 
@@ -75,7 +79,7 @@ namespace Odoo.Core.Modules
         private Dictionary<string, ModuleManifest> DiscoverModules()
         {
             var modules = new Dictionary<string, ModuleManifest>();
-            
+
             if (!Directory.Exists(_addonsPath))
             {
                 Console.WriteLine($"[Loader] Warning: Addons path '{_addonsPath}' does not exist.");
@@ -87,12 +91,15 @@ namespace Odoo.Core.Modules
                 string manifestPath = Path.Combine(dir, "manifest.json");
                 if (File.Exists(manifestPath))
                 {
-                    try 
+                    try
                     {
                         var json = File.ReadAllText(manifestPath);
-                        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        var options = new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true,
+                        };
                         var manifest = JsonSerializer.Deserialize<ModuleManifest>(json, options);
-                        
+
                         if (manifest != null)
                         {
                             // Infer name from folder if not in JSON, or ensure it matches
@@ -101,13 +108,15 @@ namespace Odoo.Core.Modules
                             {
                                 manifest = manifest with { Name = dirName };
                             }
-                            
+
                             modules[manifest.Name] = manifest;
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[Loader] Error parsing manifest in {dir}: {ex.Message}");
+                        Console.WriteLine(
+                            $"[Loader] Error parsing manifest in {dir}: {ex.Message}"
+                        );
                     }
                 }
             }
@@ -122,14 +131,15 @@ namespace Odoo.Core.Modules
 
             void Visit(string moduleName)
             {
-                if (visited.Contains(moduleName)) return;
-                if (processing.Contains(moduleName)) 
+                if (visited.Contains(moduleName))
+                    return;
+                if (processing.Contains(moduleName))
                     throw new Exception($"Circular dependency detected: {moduleName}");
-                
+
                 if (!modules.ContainsKey(moduleName))
                 {
                     // In a real scenario, we might want to handle missing optional dependencies gracefully
-                    // For now, we'll just log a warning and skip if it's a root dependency, 
+                    // For now, we'll just log a warning and skip if it's a root dependency,
                     // but if it's a required dependency of another module, that module will fail.
                     // Here we throw to be strict.
                     throw new Exception($"Missing dependency: {moduleName}");

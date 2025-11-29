@@ -19,14 +19,14 @@ namespace Odoo.Core
         /// The name of the compute method (e.g., "_compute_display_name").
         /// </summary>
         public string MethodName { get; }
-        
+
         /// <summary>
         /// If true, the computed value is stored in the database.
         /// Stored computed fields are updated when dependencies change.
         /// Default: false (computed on-the-fly).
         /// </summary>
         public bool Stored { get; set; }
-        
+
         /// <summary>
         /// If true, the field is always recomputed regardless of cache.
         /// Default: false.
@@ -49,7 +49,7 @@ namespace Odoo.Core
     /// [OdooDepends("FirstName", "LastName")]
     /// [OdooCompute(nameof(ComputeFullName))]
     /// string FullName { get; }
-    /// 
+    ///
     /// // For related fields:
     /// [OdooDepends("PartnerId.Name")]
     /// [OdooCompute(nameof(ComputePartnerName))]
@@ -81,7 +81,7 @@ namespace Odoo.Core
     /// [OdooInverse(nameof(InverseFullName))]
     /// [OdooDepends("FirstName", "LastName")]
     /// string FullName { get; set; }
-    /// 
+    ///
     /// void InverseFullName(RecordHandle handle, string value)
     /// {
     ///     var parts = value.Split(' ');
@@ -113,11 +113,11 @@ namespace Odoo.Core
     /// // Static default:
     /// [OdooDefault("New")]
     /// string Status { get; set; }
-    /// 
+    ///
     /// // Default from method:
     /// [OdooDefault(nameof(DefaultDate))]
     /// DateTime CreateDate { get; set; }
-    /// 
+    ///
     /// DateTime DefaultDate(IEnvironment env) => DateTime.UtcNow;
     /// </code>
     /// </example>
@@ -128,13 +128,13 @@ namespace Odoo.Core
         /// Static default value (for simple types).
         /// </summary>
         public object? Value { get; }
-        
+
         /// <summary>
         /// Name of a method that returns the default value.
         /// Signature: T DefaultMethod(IEnvironment env)
         /// </summary>
         public string? MethodName { get; }
-        
+
         /// <summary>
         /// If true, the Value property contains a method name, not a static value.
         /// </summary>
@@ -148,7 +148,7 @@ namespace Odoo.Core
             Value = value;
             IsMethodReference = false;
         }
-        
+
         /// <summary>
         /// Create a default attribute with a method reference.
         /// </summary>
@@ -186,7 +186,7 @@ namespace Odoo.Core
         /// The related field path using dot notation.
         /// </summary>
         public string FieldPath { get; }
-        
+
         /// <summary>
         /// If true, the related value is stored in the database.
         /// </summary>
@@ -306,10 +306,10 @@ namespace Odoo.Core
     /// {
     ///     // Custom logic before
     ///     Console.WriteLine($"Writing to {self.Length} records");
-    ///     
+    ///
     ///     // Call the base implementation
     ///     super(self, vals);
-    ///     
+    ///
     ///     // Custom logic after
     ///     Console.WriteLine("Write completed");
     /// }
@@ -322,12 +322,12 @@ namespace Odoo.Core
         /// The model name this override applies to.
         /// </summary>
         public string ModelName { get; }
-        
+
         /// <summary>
         /// The method name being overridden (e.g., "write", "create", "unlink").
         /// </summary>
         public string MethodName { get; }
-        
+
         /// <summary>
         /// Priority for ordering multiple overrides. Lower values run first.
         /// Default: 10.
