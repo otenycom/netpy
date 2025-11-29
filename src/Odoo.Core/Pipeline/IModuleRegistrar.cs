@@ -12,7 +12,7 @@ namespace Odoo.Core.Pipeline
         /// Register pipeline handlers (method overrides and base implementations).
         /// </summary>
         void RegisterPipelines(IPipelineBuilder builder);
-        
+
         /// <summary>
         /// Register record factories for dynamically creating record instances.
         /// </summary>

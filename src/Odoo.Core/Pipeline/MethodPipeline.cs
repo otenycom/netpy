@@ -29,7 +29,8 @@ namespace Odoo.Core.Pipeline
             _overrides.Add((priority, handler));
         }
 
-        public TDelegate GetChain<TDelegate>() where TDelegate : Delegate
+        public TDelegate GetChain<TDelegate>()
+            where TDelegate : Delegate
         {
             if (_compiledChain != null)
                 return (TDelegate)_compiledChain;
@@ -66,25 +67,26 @@ namespace Odoo.Core.Pipeline
             var wrapperType = wrapper.GetType();
             var invokeMethod = wrapperType.GetMethod("Invoke")!;
             var parameters = invokeMethod.GetParameters();
-            
+
             // The arguments for the resulting delegate (all except the last one which is super)
-            var argParams = parameters.Take(parameters.Length - 1)
+            var argParams = parameters
+                .Take(parameters.Length - 1)
                 .Select(p => Expression.Parameter(p.ParameterType, p.Name))
                 .ToArray();
-            
+
             // The call to wrapper(args..., super)
             // We pass 'super' as a constant.
             // Note: super is a Delegate instance, so we pass it as such.
             var superParam = Expression.Constant(super, super.GetType());
-            
+
             var allArgs = new List<Expression>(argParams);
             allArgs.Add(superParam);
 
             var call = Expression.Call(Expression.Constant(wrapper), invokeMethod, allArgs);
-            
+
             // Create the lambda matching the 'super' signature (which is the same as the result signature)
             var lambda = Expression.Lambda(super.GetType(), call, argParams);
-            
+
             return lambda.Compile();
         }
     }

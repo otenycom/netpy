@@ -6,7 +6,10 @@ namespace Odoo.Core.Pipeline
 {
     public class PipelineRegistry : IPipelineBuilder
     {
-        private readonly ConcurrentDictionary<(string Model, string Method), MethodPipeline> _pipelines = new();
+        private readonly ConcurrentDictionary<
+            (string Model, string Method),
+            MethodPipeline
+        > _pipelines = new();
 
         public void RegisterBase(string model, string method, Delegate handler)
         {
@@ -26,7 +29,8 @@ namespace Odoo.Core.Pipeline
             pipeline.AddOverride(priority, handler);
         }
 
-        public TDelegate GetPipeline<TDelegate>(string model, string method) where TDelegate : Delegate
+        public TDelegate GetPipeline<TDelegate>(string model, string method)
+            where TDelegate : Delegate
         {
             if (_pipelines.TryGetValue((model, method), out var pipeline))
             {
@@ -39,7 +43,7 @@ namespace Odoo.Core.Pipeline
         {
             return _pipelines.GetOrAdd((model, method), _ => new MethodPipeline());
         }
-        
+
         public void CompileAll()
         {
             foreach (var pipeline in _pipelines.Values)

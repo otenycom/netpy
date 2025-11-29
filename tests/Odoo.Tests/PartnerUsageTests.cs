@@ -37,33 +37,7 @@ public class PartnerUsageTests
     /// </summary>
     private static OdooEnvironment CreateConfiguredEnvironment()
     {
-        // 1. Create registries
-        var pipelineRegistry = new PipelineRegistry();
-        var registryBuilder = new RegistryBuilder();
-
-        // 2. Scan for models from referenced assemblies
-        registryBuilder.ScanAssembly(typeof(IPartnerBase).Assembly); // Odoo.Base
-        registryBuilder.ScanAssembly(typeof(IPartnerSaleExtension).Assembly); // Odoo.Sale
-        var modelRegistry = registryBuilder.Build();
-
-        // 3. Register pipelines and factories from generated code
-        // Like Odoo's module loading - each module registers its own pipelines
-
-        // First, register pipelines from Odoo.Base (contains PartnerLogic.ComputeDisplayName)
-        var baseRegistrar = new OdooBase.ModuleRegistrar();
-        baseRegistrar.RegisterPipelines(pipelineRegistry);
-
-        // Then register from this test assembly's generated code
-        // This contains the unified ResPartner wrapper that sees all interfaces
-        var testRegistrar = new ModuleRegistrar();
-        testRegistrar.RegisterPipelines(pipelineRegistry);
-        testRegistrar.RegisterFactories(modelRegistry);
-
-        // 4. Compile pipelines (builds delegate chains)
-        pipelineRegistry.CompileAll();
-
-        // 5. Create environment
-        return new OdooEnvironment(userId: 1, null, modelRegistry, pipelineRegistry);
+        return new OdooEnvironmentBuilder().WithUserId(1).Build();
     }
 
     #endregion
