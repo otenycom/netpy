@@ -2,6 +2,25 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "dotnet build (workspace)",
+            "type": "process",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "${workspaceFolder}/netpy.slnx",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary;ForceNoAlign"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
             "label": "build",
             "command": "dotnet",
             "type": "process",

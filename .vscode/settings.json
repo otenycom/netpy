@@ -1,0 +1,12 @@
+{
+  "files.exclude": {
+    "**/bin": false,
+    "**/obj": false
+  },
+  "search.exclude": {
+    "**/obj": false
+  },
+  "files.watcherExclude": {
+    "**/obj/**": false
+  }
+}

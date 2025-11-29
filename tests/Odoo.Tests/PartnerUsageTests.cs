@@ -92,9 +92,9 @@ public class PartnerUsageTests
         var env = CreateConfiguredEnvironment();
 
         // Act - Create a company partner
-        var company = ResPartnerPipelines.CreateFromDict(
+        var company = ResPartnerPipelines.Create(
             env,
-            new() { { "name", "Acme Corp" }, { "is_company", true } }
+            new() { Name = "Acme Corp", IsCompany = true }
         );
 
         // Assert - DisplayName shows "Name | Company" format

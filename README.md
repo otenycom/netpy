@@ -215,6 +215,41 @@ var result = pythonBridge.ExecuteModuleMethod<string>(
    dotnet run
    ```
 
+### VSCode: Working with Generated Files (obj/ bin)
+
+If you want full IDE integration (Find All References, Go to Definition, IntelliSense) for .NET-generated sources (for example files produced under `obj/GeneratedFiles/` or Razor/resource-generated `.cs` files), follow these steps. The repository already includes workspace helpers to make this easier.
+
+- **Files added to this repo:**
+    - `.vscode/settings.json` — makes `obj` and `bin` visible in the Explorer and searchable.
+    - `.vscode/tasks.json` — contains build tasks (see below).
+    - `omnisharp.json` — clears OmniSharp exclude patterns so generated files are not filtered out.
+
+- **Show generated files in Explorer and Search:**
+    1. Open VSCode settings or use the workspace `.vscode/settings.json` which sets:
+         - `files.exclude` to show `**/bin` and `**/obj`
+         - `search.exclude` to include `**/obj`
+    2. Reload the window (Command Palette → `Developer: Reload Window`).
+
+- **Build to generate files:**
+    - From the workspace root run the build task or use the terminal. Example for zsh (quotes required for MSBuild args with semicolons):
+
+```bash
+dotnet build /Users/ries/oteny/netpy/netpy.slnx "/property:GenerateFullPaths=true" "/consoleloggerparameters:NoSummary;ForceNoAlign"
+```
+
+    - VSCode tasks available:
+        - `dotnet build (workspace)` — builds the whole solution
+        - `build` — builds the sample `Odoo.Demo` project
+        - `build-tests` — builds the tests
+
+- **Restart OmniSharp to pick up generated files:**
+    - Command Palette → `OmniSharp: Restart OmniSharp` (or `OmniSharp: Reload Solution`). This forces OmniSharp to re-scan the project model and index generated `.cs` files.
+
+- **If you see compile errors in generated files:**
+    - The source generator has been updated to avoid iterator-method compiler errors where a model has no emitted properties. If you still see errors, try `dotnet clean` then `dotnet build`, inspect the generated file in `samples/Odoo.Demo/obj/GeneratedFiles/...`, and open the OmniSharp log (Output → OmniSharp Log) for details.
+
+- **Performance note:** Including `obj` folders in Explorer/search increases files shown and may add noise; using the workspace settings keeps generated sources discoverable while minimizing global config changes.
+
 ## 📖 Learn More
 
 - 📘 [Complete Documentation](ODOO_ORM_README.md) - Full architecture guide

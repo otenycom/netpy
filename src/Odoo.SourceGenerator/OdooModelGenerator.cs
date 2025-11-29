@@ -1160,6 +1160,8 @@ namespace Odoo.SourceGenerator
                 sb.AppendLine($"            if ({prop.Name}.IsSet) yield return \"{fieldName}\";");
             }
 
+            // Ensure method compiles even if there are no properties (no yield statements emitted)
+            sb.AppendLine("            yield break;");
             sb.AppendLine("        }");
 
             sb.AppendLine("    }");
@@ -1318,6 +1320,9 @@ namespace Odoo.SourceGenerator
                     $"            if (values.{prop.Name}.IsSet) yield return ModelSchema.{className}.{prop.Name};"
                 );
             }
+
+            // Ensure iterator compiles even if no properties were emitted
+            sb.AppendLine("            yield break;");
 
             sb.AppendLine("        }");
             sb.AppendLine();
