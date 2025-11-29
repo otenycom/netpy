@@ -19,7 +19,12 @@ namespace Odoo.Core
         /// <param name="cache">The cache to write to</param>
         /// <param name="model">The model handle</param>
         /// <param name="recordId">The record ID</param>
-        void ApplyToCache(TValues values, IColumnarCache cache, ModelHandle model, int recordId);
+        void ApplyToCache(
+            TValues values,
+            IColumnarCache cache,
+            ModelHandle model,
+            RecordId recordId
+        );
 
         /// <summary>
         /// Apply different values to multiple records (batch create).
@@ -33,7 +38,7 @@ namespace Odoo.Core
             IEnumerable<TValues> valuesCollection,
             IColumnarCache cache,
             ModelHandle model,
-            int[] recordIds
+            RecordId[] recordIds
         );
 
         /// <summary>
@@ -48,7 +53,7 @@ namespace Odoo.Core
             TValues values,
             IColumnarCache cache,
             ModelHandle model,
-            int[] recordIds
+            RecordId[] recordIds
         );
 
         /// <summary>
@@ -59,7 +64,12 @@ namespace Odoo.Core
         /// <param name="env">The environment for triggering Modified</param>
         /// <param name="model">The model handle</param>
         /// <param name="recordId">The record ID that was modified</param>
-        void TriggerModified(TValues values, OdooEnvironment env, ModelHandle model, int recordId);
+        void TriggerModified(
+            TValues values,
+            OdooEnvironment env,
+            ModelHandle model,
+            RecordId recordId
+        );
 
         /// <summary>
         /// Invoke triggers for batch of records with same field changes.
@@ -73,7 +83,7 @@ namespace Odoo.Core
             TValues values,
             OdooEnvironment env,
             ModelHandle model,
-            int[] recordIds
+            RecordId[] recordIds
         );
     }
 }

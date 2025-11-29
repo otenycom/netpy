@@ -25,7 +25,8 @@ namespace Odoo.Core
         /// Identity Map: Caches record instances to ensure reference equality.
         /// Key is (ModelToken, RecordId), Value is the unified wrapper instance.
         /// </summary>
-        private readonly Dictionary<(int ModelToken, int Id), IOdooRecord> _identityMap = new();
+        private readonly Dictionary<(int ModelToken, RecordId Id), IOdooRecord> _identityMap =
+            new();
 
         /// <summary>
         /// Protection tracking: Field → Set of protected record IDs.
@@ -33,7 +34,7 @@ namespace Odoo.Core
         /// without triggering the Write pipeline (which would cause infinite recursion).
         /// Mirrors Odoo's env._protected pattern.
         /// </summary>
-        private readonly Dictionary<FieldHandle, HashSet<int>> _protected = new();
+        private readonly Dictionary<FieldHandle, HashSet<RecordId>> _protected = new();
 
         public int UserId { get; }
         public IColumnarCache Columns { get; }
@@ -92,7 +93,7 @@ namespace Odoo.Core
         /// var partner2 = env.GetRecord&lt;IPartnerSaleExtension&gt;("res.partner", 1);
         /// Assert.True(ReferenceEquals(partner1, partner2)); // Same instance!
         /// </example>
-        public T GetRecord<T>(string modelName, int id)
+        public T GetRecord<T>(string modelName, RecordId id)
             where T : class, IOdooRecord
         {
             if (_modelRegistry == null)
@@ -121,7 +122,7 @@ namespace Odoo.Core
         /// <summary>
         /// Get a record by ID, inferring the model name from the interface's [OdooModel] attribute.
         /// </summary>
-        public T GetRecord<T>(int id)
+        public T GetRecord<T>(RecordId id)
             where T : class, IOdooRecord
         {
             var modelName = GetModelName<T>();
@@ -132,7 +133,7 @@ namespace Odoo.Core
         /// Register a record in the identity map.
         /// Called when creating new records to ensure reference equality.
         /// </summary>
-        public void RegisterInIdentityMap(int modelToken, int id, IOdooRecord record)
+        public void RegisterInIdentityMap(int modelToken, RecordId id, IOdooRecord record)
         {
             var key = (modelToken, id);
             _identityMap[key] = record;
@@ -141,7 +142,7 @@ namespace Odoo.Core
         /// <summary>
         /// Check if a record exists in the identity map.
         /// </summary>
-        public bool TryGetFromIdentityMap(int modelToken, int id, out IOdooRecord? record)
+        public bool TryGetFromIdentityMap(int modelToken, RecordId id, out IOdooRecord? record)
         {
             return _identityMap.TryGetValue((modelToken, id), out record);
         }
@@ -161,7 +162,7 @@ namespace Odoo.Core
         /// <param name="modelName">The Odoo model name.</param>
         /// <param name="ids">The record IDs.</param>
         /// <returns>A RecordSet of records.</returns>
-        public RecordSet<T> GetRecords<T>(string modelName, int[] ids)
+        public RecordSet<T> GetRecords<T>(string modelName, RecordId[] ids)
             where T : class, IOdooRecord
         {
             return new RecordSet<T>(
@@ -175,7 +176,7 @@ namespace Odoo.Core
         /// <summary>
         /// Get multiple records as a RecordSet, inferring model name from interface.
         /// </summary>
-        public RecordSet<T> GetRecords<T>(int[] ids)
+        public RecordSet<T> GetRecords<T>(RecordId[] ids)
             where T : class, IOdooRecord
         {
             var modelName = GetModelName<T>();
@@ -186,7 +187,7 @@ namespace Odoo.Core
         /// Get a record by model token and ID.
         /// Used by RecordHandle.As&lt;T&gt;() for identity map lookups.
         /// </summary>
-        public T GetRecordByToken<T>(int modelToken, int id)
+        public T GetRecordByToken<T>(int modelToken, RecordId id)
             where T : class, IOdooRecord
         {
             if (_modelRegistry == null)
@@ -236,10 +237,10 @@ namespace Odoo.Core
         public RecordSet<T> GetModel<T>()
             where T : IOdooRecord
         {
-            return CreateRecordSet<T>(Array.Empty<int>());
+            return CreateRecordSet<T>(Array.Empty<RecordId>());
         }
 
-        public RecordSet<T> CreateRecordSet<T>(int[] ids)
+        public RecordSet<T> CreateRecordSet<T>(RecordId[] ids)
             where T : IOdooRecord
         {
             var factory = GetOrCreateFactory<T>();
@@ -251,18 +252,18 @@ namespace Odoo.Core
         /// Register a custom factory for creating record instances.
         /// This is used by the generated code to register record constructors.
         /// </summary>
-        public void RegisterFactory<T>(string modelName, Func<IEnvironment, int, T> factory)
+        public void RegisterFactory<T>(string modelName, Func<IEnvironment, RecordId, T> factory)
             where T : IOdooRecord
         {
             _recordFactories[typeof(T)] = factory;
         }
 
-        private Func<IEnvironment, int, T> GetOrCreateFactory<T>()
+        private Func<IEnvironment, RecordId, T> GetOrCreateFactory<T>()
             where T : IOdooRecord
         {
             if (_recordFactories.TryGetValue(typeof(T), out var factory))
             {
-                return (Func<IEnvironment, int, T>)factory;
+                return (Func<IEnvironment, RecordId, T>)factory;
             }
 
             // Try to get from registry if available
@@ -467,7 +468,7 @@ namespace Odoo.Core
         /// <param name="model">The model handle</param>
         /// <param name="recordId">The record ID</param>
         /// <param name="field">The field that was modified</param>
-        public void Modified(ModelHandle model, int recordId, FieldHandle field)
+        public void Modified(ModelHandle model, RecordId recordId, FieldHandle field)
         {
             DirtyTracker.MarkDirty(model, recordId, field);
             ComputeTracker.Modified(model, recordId, field);
@@ -476,7 +477,7 @@ namespace Odoo.Core
         /// <summary>
         /// Mark multiple fields as modified on a record.
         /// </summary>
-        public void Modified(ModelHandle model, int recordId, IEnumerable<FieldHandle> fields)
+        public void Modified(ModelHandle model, RecordId recordId, IEnumerable<FieldHandle> fields)
         {
             foreach (var field in fields)
             {
@@ -503,7 +504,12 @@ namespace Odoo.Core
         /// <param name="recordId">The record ID</param>
         /// <param name="field">The field handle</param>
         /// <param name="value">The computed value to set</param>
-        public void SetComputedValue<T>(ModelHandle model, int recordId, FieldHandle field, T value)
+        public void SetComputedValue<T>(
+            ModelHandle model,
+            RecordId recordId,
+            FieldHandle field,
+            T value
+        )
         {
             // Direct cache write - bypasses Write pipeline
             Columns.SetValue(model, recordId, field, value);
@@ -525,7 +531,7 @@ namespace Odoo.Core
         /// <param name="field">The field handle</param>
         /// <param name="recordId">The record ID</param>
         /// <returns>True if the record is protected for this field, false otherwise</returns>
-        public bool IsProtected(FieldHandle field, int recordId)
+        public bool IsProtected(FieldHandle field, RecordId recordId)
         {
             return _protected.TryGetValue(field, out var ids) && ids.Contains(recordId);
         }
@@ -554,7 +560,10 @@ namespace Odoo.Core
         /// }
         /// </code>
         /// </example>
-        public IDisposable Protecting(IEnumerable<FieldHandle> fields, IEnumerable<int> recordIds)
+        public IDisposable Protecting(
+            IEnumerable<FieldHandle> fields,
+            IEnumerable<RecordId> recordIds
+        )
         {
             var fieldList = fields.ToList();
             var idSet = recordIds.ToHashSet();
@@ -563,7 +572,7 @@ namespace Odoo.Core
             {
                 if (!_protected.TryGetValue(field, out var ids))
                 {
-                    ids = new HashSet<int>();
+                    ids = new HashSet<RecordId>();
                     _protected[field] = ids;
                 }
                 ids.UnionWith(idSet);
@@ -576,7 +585,10 @@ namespace Odoo.Core
         /// Remove protection for specific fields and record IDs.
         /// Called by ProtectionScope.Dispose().
         /// </summary>
-        private void ClearProtection(IEnumerable<FieldHandle> fields, IEnumerable<int> recordIds)
+        private void ClearProtection(
+            IEnumerable<FieldHandle> fields,
+            IEnumerable<RecordId> recordIds
+        )
         {
             foreach (var field in fields)
             {
@@ -604,13 +616,13 @@ namespace Odoo.Core
         {
             private readonly OdooEnvironment _env;
             private readonly List<FieldHandle> _fields;
-            private readonly HashSet<int> _recordIds;
+            private readonly HashSet<RecordId> _recordIds;
             private bool _disposed;
 
             public ProtectionScope(
                 OdooEnvironment env,
                 List<FieldHandle> fields,
-                HashSet<int> recordIds
+                HashSet<RecordId> recordIds
             )
             {
                 _env = env;
@@ -648,7 +660,7 @@ namespace Odoo.Core
         public static void SetComputedValue<T>(
             this IEnvironment env,
             ModelHandle model,
-            int recordId,
+            RecordId recordId,
             FieldHandle field,
             T value
         )

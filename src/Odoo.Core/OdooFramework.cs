@@ -15,7 +15,7 @@ namespace Odoo.Core
     public class OdooModelAttribute : Attribute
     {
         public string ModelName { get; }
-        
+
         public OdooModelAttribute(string modelName) => ModelName = modelName;
     }
 
@@ -26,7 +26,7 @@ namespace Odoo.Core
     public class OdooFieldAttribute : Attribute
     {
         public string TechnicalName { get; }
-        
+
         public OdooFieldAttribute(string technicalName) => TechnicalName = technicalName;
     }
 
@@ -42,7 +42,7 @@ namespace Odoo.Core
         /// The current user ID.
         /// </summary>
         int UserId { get; }
-        
+
         /// <summary>
         /// The columnar cache for high-performance batch operations.
         /// This is the preferred cache for new code.
@@ -62,17 +62,20 @@ namespace Odoo.Core
         /// <summary>
         /// Fast access to compiled pipeline delegates.
         /// </summary>
-        TDelegate GetPipeline<TDelegate>(string model, string method) where TDelegate : Delegate;
-        
+        TDelegate GetPipeline<TDelegate>(string model, string method)
+            where TDelegate : Delegate;
+
         /// <summary>
         /// Factory method to get a recordset wrapper for a specific interface.
         /// </summary>
-        RecordSet<T> GetModel<T>() where T : IOdooRecord;
-        
+        RecordSet<T> GetModel<T>()
+            where T : IOdooRecord;
+
         /// <summary>
         /// Create a recordset with specific IDs.
         /// </summary>
-        RecordSet<T> CreateRecordSet<T>(int[] ids) where T : IOdooRecord;
+        RecordSet<T> CreateRecordSet<T>(RecordId[] ids)
+            where T : IOdooRecord;
     }
 
     // --- The Generic RecordSet ---
@@ -82,20 +85,22 @@ namespace Odoo.Core
     /// The 'T' is the Model Interface (e.g., IPartner).
     /// This is a lightweight struct that only holds IDs and environment reference.
     /// </summary>
-    public readonly struct RecordSet<T> : IEnumerable<T> where T : IOdooRecord
+    public readonly struct RecordSet<T> : IEnumerable<T>
+        where T : IOdooRecord
     {
         public readonly IEnvironment Env;
         public readonly string ModelName;
-        public readonly int[] Ids;
+        public readonly RecordId[] Ids;
 
         // The Factory creates the concrete struct wrapper for a single ID
-        private readonly Func<IEnvironment, int, T> _recordFactory;
+        private readonly Func<IEnvironment, RecordId, T> _recordFactory;
 
         public RecordSet(
-            IEnvironment env, 
-            string modelName, 
-            int[] ids, 
-            Func<IEnvironment, int, T> factory)
+            IEnvironment env,
+            string modelName,
+            RecordId[] ids,
+            Func<IEnvironment, RecordId, T> factory
+        )
         {
             Env = env;
             ModelName = modelName;
@@ -128,7 +133,7 @@ namespace Odoo.Core
         /// </summary>
         public IEnumerator<T> GetEnumerator()
         {
-            foreach (var id in Ids) 
+            foreach (var id in Ids)
                 yield return _recordFactory(Env, id);
         }
 
@@ -139,7 +144,7 @@ namespace Odoo.Core
         /// </summary>
         public RecordSet<T> Where(Func<T, bool> predicate)
         {
-            var filteredIds = new List<int>();
+            var filteredIds = new List<RecordId>();
             foreach (var id in Ids)
             {
                 var record = _recordFactory(Env, id);
@@ -185,8 +190,8 @@ namespace Odoo.Core
         /// <summary>
         /// The database ID of this record.
         /// </summary>
-        int Id { get; }
-        
+        RecordId Id { get; }
+
         /// <summary>
         /// The environment context.
         /// </summary>
@@ -221,7 +226,8 @@ namespace Odoo.Core
             return this;
         }
 
-        public IReadOnlyList<(string Field, string Operator, object Value)> Conditions => _conditions;
+        public IReadOnlyList<(string Field, string Operator, object Value)> Conditions =>
+            _conditions;
     }
 
     // --- Extension Methods ---
@@ -235,9 +241,8 @@ namespace Odoo.Core
         /// Search for records matching a domain.
         /// This is a placeholder - actual implementation would query the database.
         /// </summary>
-        public static Task<RecordSet<T>> SearchAsync<T>(
-            this IEnvironment env, 
-            SearchDomain domain) where T : IOdooRecord
+        public static Task<RecordSet<T>> SearchAsync<T>(this IEnvironment env, SearchDomain domain)
+            where T : IOdooRecord
         {
             // Placeholder implementation
             // In reality, this would execute a database query
@@ -248,8 +253,10 @@ namespace Odoo.Core
         /// Create a new record.
         /// </summary>
         public static Task<T> CreateAsync<T>(
-            this IEnvironment env, 
-            Dictionary<string, object> values) where T : IOdooRecord
+            this IEnvironment env,
+            Dictionary<string, object> values
+        )
+            where T : IOdooRecord
         {
             // Placeholder implementation
             throw new NotImplementedException("Create operation not yet implemented");

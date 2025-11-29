@@ -298,7 +298,7 @@ namespace Odoo.SourceGenerator
             sb.AppendLine($"    public ref struct {contextName}");
             sb.AppendLine("    {");
             sb.AppendLine("        private readonly IColumnarCache _cache;");
-            sb.AppendLine("        private readonly int[] _ids;");
+            sb.AppendLine("        private readonly RecordId[] _ids;");
             sb.AppendLine();
 
             // Generate column span fields
@@ -312,7 +312,7 @@ namespace Odoo.SourceGenerator
             }
 
             sb.AppendLine();
-            sb.AppendLine($"        public {contextName}(IColumnarCache cache, int[] ids)");
+            sb.AppendLine($"        public {contextName}(IColumnarCache cache, RecordId[] ids)");
             sb.AppendLine("        {");
             sb.AppendLine("            _cache = cache;");
             sb.AppendLine("            _ids = ids;");
@@ -433,7 +433,7 @@ namespace Odoo.SourceGenerator
             sb.AppendLine();
 
             // IOdooRecord properties
-            sb.AppendLine("        public int Id => _handle.Id;");
+            sb.AppendLine("        public RecordId Id => _handle.Id;");
             sb.AppendLine("        public IEnvironment Env => _handle.Env;");
             sb.AppendLine();
 
@@ -1215,7 +1215,7 @@ namespace Odoo.SourceGenerator
             );
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                $"        public void ApplyToCache({valuesName} values, IColumnarCache cache, ModelHandle model, int recordId)"
+                $"        public void ApplyToCache({valuesName} values, IColumnarCache cache, ModelHandle model, RecordId recordId)"
             );
             sb.AppendLine("        {");
 
@@ -1243,7 +1243,7 @@ namespace Odoo.SourceGenerator
             );
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                $"        public void ApplyToCacheBatch(IEnumerable<{valuesName}> valuesCollection, IColumnarCache cache, ModelHandle model, int[] recordIds)"
+                $"        public void ApplyToCacheBatch(IEnumerable<{valuesName}> valuesCollection, IColumnarCache cache, ModelHandle model, RecordId[] recordIds)"
             );
             sb.AppendLine("        {");
             sb.AppendLine("            var valuesList = valuesCollection.ToList();");
@@ -1271,7 +1271,7 @@ namespace Odoo.SourceGenerator
             );
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                $"        public void ApplyToCacheBulk({valuesName} values, IColumnarCache cache, ModelHandle model, int[] recordIds)"
+                $"        public void ApplyToCacheBulk({valuesName} values, IColumnarCache cache, ModelHandle model, RecordId[] recordIds)"
             );
             sb.AppendLine("        {");
             sb.AppendLine("            foreach (var recordId in recordIds)");
@@ -1286,7 +1286,7 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("        /// Mark set fields as dirty for a record.");
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                $"        public void MarkDirty({valuesName} values, IColumnarCache cache, ModelHandle model, int recordId)"
+                $"        public void MarkDirty({valuesName} values, IColumnarCache cache, ModelHandle model, RecordId recordId)"
             );
             sb.AppendLine("        {");
 
@@ -1335,7 +1335,7 @@ namespace Odoo.SourceGenerator
             );
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                $"        public void TriggerModified({valuesName} values, OdooEnvironment env, ModelHandle model, int recordId)"
+                $"        public void TriggerModified({valuesName} values, OdooEnvironment env, ModelHandle model, RecordId recordId)"
             );
             sb.AppendLine("        {");
 
@@ -1360,7 +1360,7 @@ namespace Odoo.SourceGenerator
             );
             sb.AppendLine("        /// </summary>");
             sb.AppendLine(
-                $"        public void TriggerModifiedBatch({valuesName} values, OdooEnvironment env, ModelHandle model, int[] recordIds)"
+                $"        public void TriggerModifiedBatch({valuesName} values, OdooEnvironment env, ModelHandle model, RecordId[] recordIds)"
             );
             sb.AppendLine("        {");
             sb.AppendLine("            foreach (var recordId in recordIds)");
@@ -1465,7 +1465,7 @@ namespace Odoo.SourceGenerator
                 sb.AppendLine($"            this IEnvironment env,");
                 sb.AppendLine($"            IEnumerable<{valuesName}> valuesCollection)");
                 sb.AppendLine("        {");
-                sb.AppendLine($"            var ids = new List<int>();");
+                sb.AppendLine($"            var ids = new List<RecordId>();");
                 sb.AppendLine($"            foreach (var values in valuesCollection)");
                 sb.AppendLine("            {");
                 sb.AppendLine($"                var record = env.Create(values);");

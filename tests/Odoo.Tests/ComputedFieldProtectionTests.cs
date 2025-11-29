@@ -1,8 +1,8 @@
-using Xunit;
+using Odoo.Base.Models;
 using Odoo.Core;
 using Odoo.Core.Modules;
 using Odoo.Core.Pipeline;
-using Odoo.Base.Models;
+using Xunit;
 
 namespace Odoo.Tests;
 
@@ -34,7 +34,7 @@ public class ComputedFieldProtectionTests
         // Arrange
         var env = CreateTestEnvironment();
         var fieldToken = new FieldHandle(12345);
-        var recordId = 1;
+        RecordId recordId = 1;
 
         // Act
         var isProtected = env.IsProtected(fieldToken, recordId);
@@ -49,10 +49,10 @@ public class ComputedFieldProtectionTests
         // Arrange
         var env = CreateTestEnvironment();
         var fieldToken = new FieldHandle(12345);
-        var recordId = 1;
+        RecordId recordId = 1;
 
         // Act
-        using (env.Protecting(new[] { fieldToken }, new[] { recordId }))
+        using (env.Protecting(new[] { fieldToken }, new RecordId[] { recordId }))
         {
             var isProtected = env.IsProtected(fieldToken, recordId);
 
@@ -67,10 +67,10 @@ public class ComputedFieldProtectionTests
         // Arrange
         var env = CreateTestEnvironment();
         var fieldToken = new FieldHandle(12345);
-        var recordId = 1;
+        RecordId recordId = 1;
 
         // Act
-        using (env.Protecting(new[] { fieldToken }, new[] { recordId }))
+        using (env.Protecting(new[] { fieldToken }, new RecordId[] { recordId }))
         {
             // Record is protected inside the using block
             Assert.True(env.IsProtected(fieldToken, recordId));
@@ -86,7 +86,7 @@ public class ComputedFieldProtectionTests
         // Arrange
         var env = CreateTestEnvironment();
         var fieldToken = new FieldHandle(12345);
-        var recordIds = new[] { 1, 2, 3, 4, 5 };
+        var recordIds = new RecordId[] { 1, 2, 3, 4, 5 };
 
         // Act & Assert
         using (env.Protecting(new[] { fieldToken }, recordIds))
@@ -100,7 +100,10 @@ public class ComputedFieldProtectionTests
         // After dispose
         foreach (var id in recordIds)
         {
-            Assert.False(env.IsProtected(fieldToken, id), $"Record {id} should not be protected after dispose");
+            Assert.False(
+                env.IsProtected(fieldToken, id),
+                $"Record {id} should not be protected after dispose"
+            );
         }
     }
 
@@ -110,21 +113,27 @@ public class ComputedFieldProtectionTests
         // Arrange
         var env = CreateTestEnvironment();
         var fields = new[] { new FieldHandle(111), new FieldHandle(222), new FieldHandle(333) };
-        var recordId = 1;
+        RecordId recordId = 1;
 
         // Act & Assert
-        using (env.Protecting(fields, new[] { recordId }))
+        using (env.Protecting(fields, new RecordId[] { recordId }))
         {
             foreach (var field in fields)
             {
-                Assert.True(env.IsProtected(field, recordId), $"Field {field.Token} should be protected");
+                Assert.True(
+                    env.IsProtected(field, recordId),
+                    $"Field {field.Token} should be protected"
+                );
             }
         }
 
         // After dispose
         foreach (var field in fields)
         {
-            Assert.False(env.IsProtected(field, recordId), $"Field {field.Token} should not be protected after dispose");
+            Assert.False(
+                env.IsProtected(field, recordId),
+                $"Field {field.Token} should not be protected after dispose"
+            );
         }
     }
 
@@ -135,10 +144,10 @@ public class ComputedFieldProtectionTests
         var env = CreateTestEnvironment();
         var protectedField = new FieldHandle(111);
         var otherField = new FieldHandle(222);
-        var recordId = 1;
+        RecordId recordId = 1;
 
         // Act & Assert
-        using (env.Protecting(new[] { protectedField }, new[] { recordId }))
+        using (env.Protecting(new[] { protectedField }, new RecordId[] { recordId }))
         {
             Assert.True(env.IsProtected(protectedField, recordId));
             Assert.False(env.IsProtected(otherField, recordId));
@@ -151,11 +160,11 @@ public class ComputedFieldProtectionTests
         // Arrange
         var env = CreateTestEnvironment();
         var fieldToken = new FieldHandle(12345);
-        var protectedRecordId = 1;
-        var otherRecordId = 2;
+        RecordId protectedRecordId = 1;
+        RecordId otherRecordId = 2;
 
         // Act & Assert
-        using (env.Protecting(new[] { fieldToken }, new[] { protectedRecordId }))
+        using (env.Protecting(new[] { fieldToken }, new RecordId[] { protectedRecordId }))
         {
             Assert.True(env.IsProtected(fieldToken, protectedRecordId));
             Assert.False(env.IsProtected(fieldToken, otherRecordId));
@@ -169,15 +178,15 @@ public class ComputedFieldProtectionTests
         var env = CreateTestEnvironment();
         var field1 = new FieldHandle(111);
         var field2 = new FieldHandle(222);
-        var recordId = 1;
+        RecordId recordId = 1;
 
         // Act & Assert
-        using (env.Protecting(new[] { field1 }, new[] { recordId }))
+        using (env.Protecting(new[] { field1 }, new RecordId[] { recordId }))
         {
             Assert.True(env.IsProtected(field1, recordId));
             Assert.False(env.IsProtected(field2, recordId));
 
-            using (env.Protecting(new[] { field2 }, new[] { recordId }))
+            using (env.Protecting(new[] { field2 }, new RecordId[] { recordId }))
             {
                 Assert.True(env.IsProtected(field1, recordId));
                 Assert.True(env.IsProtected(field2, recordId));
@@ -204,7 +213,7 @@ public class ComputedFieldProtectionTests
         var env = CreateTestEnvironment();
         var modelToken = new ModelHandle(999);
         var fieldToken = new FieldHandle(12345);
-        var recordId = 1;
+        RecordId recordId = 1;
         var expectedValue = "Test Value";
 
         // Act
@@ -222,8 +231,8 @@ public class ComputedFieldProtectionTests
         var env = CreateTestEnvironment();
         var modelToken = new ModelHandle(999);
         var fieldToken = new FieldHandle(12345);
-        var recordId = 1;
-        
+        RecordId recordId = 1;
+
         // Mark as needing recompute first
         env.ComputeTracker.MarkToRecompute(modelToken, recordId, fieldToken);
         Assert.True(env.ComputeTracker.NeedsRecompute(modelToken, recordId, fieldToken));

@@ -16,16 +16,17 @@ namespace Odoo.Core
     public class DirtyTracker
     {
         // Model Token -> (Record ID -> Set of Field Tokens)
-        private readonly Dictionary<int, Dictionary<int, HashSet<int>>> _dirtyByModel = new();
-        
+        private readonly Dictionary<int, Dictionary<RecordId, HashSet<int>>> _dirtyByModel = new();
+
         // Ordered list of (Model, RecordId, Field) for maintaining write order
-        private readonly List<(int ModelToken, int RecordId, int FieldToken)> _writeOrder = new();
+        private readonly List<(int ModelToken, RecordId RecordId, int FieldToken)> _writeOrder =
+            new();
 
         /// <summary>
         /// Mark a field as dirty for a specific record.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void MarkDirty(ModelHandle model, int recordId, FieldHandle field)
+        public void MarkDirty(ModelHandle model, RecordId recordId, FieldHandle field)
         {
             MarkDirtyInternal(model.Token, recordId, field.Token);
         }
@@ -34,11 +35,11 @@ namespace Odoo.Core
         /// Mark a field as dirty for a specific record (internal).
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void MarkDirtyInternal(int modelToken, int recordId, int fieldToken)
+        private void MarkDirtyInternal(int modelToken, RecordId recordId, int fieldToken)
         {
             if (!_dirtyByModel.TryGetValue(modelToken, out var recordFields))
             {
-                recordFields = new Dictionary<int, HashSet<int>>();
+                recordFields = new Dictionary<RecordId, HashSet<int>>();
                 _dirtyByModel[modelToken] = recordFields;
             }
 
@@ -58,7 +59,7 @@ namespace Odoo.Core
         /// <summary>
         /// Mark multiple fields as dirty for a specific record.
         /// </summary>
-        public void MarkDirty(ModelHandle model, int recordId, IEnumerable<FieldHandle> fields)
+        public void MarkDirty(ModelHandle model, RecordId recordId, IEnumerable<FieldHandle> fields)
         {
             foreach (var field in fields)
             {
@@ -69,10 +70,12 @@ namespace Odoo.Core
         /// <summary>
         /// Get all dirty fields for a specific record.
         /// </summary>
-        public IEnumerable<FieldHandle> GetDirtyFields(ModelHandle model, int recordId)
+        public IEnumerable<FieldHandle> GetDirtyFields(ModelHandle model, RecordId recordId)
         {
-            if (_dirtyByModel.TryGetValue(model.Token, out var recordFields) &&
-                recordFields.TryGetValue(recordId, out var fields))
+            if (
+                _dirtyByModel.TryGetValue(model.Token, out var recordFields)
+                && recordFields.TryGetValue(recordId, out var fields)
+            )
             {
                 return fields.Select(token => new FieldHandle(token));
             }
@@ -83,26 +86,29 @@ namespace Odoo.Core
         /// <summary>
         /// Check if a record has any dirty fields.
         /// </summary>
-        public bool IsDirty(ModelHandle model, int recordId)
+        public bool IsDirty(ModelHandle model, RecordId recordId)
         {
-            return _dirtyByModel.TryGetValue(model.Token, out var recordFields) &&
-                   recordFields.ContainsKey(recordId);
+            return _dirtyByModel.TryGetValue(model.Token, out var recordFields)
+                && recordFields.ContainsKey(recordId);
         }
 
         /// <summary>
         /// Check if a specific field on a record is dirty.
         /// </summary>
-        public bool IsFieldDirty(ModelHandle model, int recordId, FieldHandle field)
+        public bool IsFieldDirty(ModelHandle model, RecordId recordId, FieldHandle field)
         {
-            return _dirtyByModel.TryGetValue(model.Token, out var recordFields) &&
-                   recordFields.TryGetValue(recordId, out var fields) &&
-                   fields.Contains(field.Token);
+            return _dirtyByModel.TryGetValue(model.Token, out var recordFields)
+                && recordFields.TryGetValue(recordId, out var fields)
+                && fields.Contains(field.Token);
         }
 
         /// <summary>
         /// Get all dirty records for a model.
         /// </summary>
-        public IEnumerable<(int RecordId, IEnumerable<FieldHandle> DirtyFields)> GetDirtyRecords(ModelHandle model)
+        public IEnumerable<(
+            RecordId RecordId,
+            IEnumerable<FieldHandle> DirtyFields
+        )> GetDirtyRecords(ModelHandle model)
         {
             if (_dirtyByModel.TryGetValue(model.Token, out var recordFields))
             {
@@ -117,7 +123,10 @@ namespace Odoo.Core
         /// Get all dirty data grouped by model.
         /// Returns: Model Token -> (Record ID -> Set of Field Tokens)
         /// </summary>
-        public IEnumerable<(int ModelToken, IEnumerable<(int RecordId, IEnumerable<int> FieldTokens)>)> GetAllDirty()
+        public IEnumerable<(
+            int ModelToken,
+            IEnumerable<(RecordId RecordId, IEnumerable<int> FieldTokens)>
+        )> GetAllDirty()
         {
             foreach (var (modelToken, recordFields) in _dirtyByModel)
             {
@@ -129,7 +138,7 @@ namespace Odoo.Core
         /// <summary>
         /// Get dirty records in write order (maintains the order fields were modified).
         /// </summary>
-        public IEnumerable<(int ModelToken, int RecordId, int FieldToken)> GetWriteOrder()
+        public IEnumerable<(int ModelToken, RecordId RecordId, int FieldToken)> GetWriteOrder()
         {
             return _writeOrder;
         }
@@ -137,12 +146,12 @@ namespace Odoo.Core
         /// <summary>
         /// Clear dirty state for a specific record.
         /// </summary>
-        public void ClearRecord(ModelHandle model, int recordId)
+        public void ClearRecord(ModelHandle model, RecordId recordId)
         {
             if (_dirtyByModel.TryGetValue(model.Token, out var recordFields))
             {
                 recordFields.Remove(recordId);
-                
+
                 // Also remove from write order
                 _writeOrder.RemoveAll(x => x.ModelToken == model.Token && x.RecordId == recordId);
             }
@@ -187,13 +196,13 @@ namespace Odoo.Core
         /// <summary>
         /// Get just the record IDs that are dirty for a model.
         /// </summary>
-        public IEnumerable<int> GetDirtyRecordIds(ModelHandle model)
+        public IEnumerable<RecordId> GetDirtyRecordIds(ModelHandle model)
         {
             if (_dirtyByModel.TryGetValue(model.Token, out var recordFields))
             {
                 return recordFields.Keys;
             }
-            return Enumerable.Empty<int>();
+            return Enumerable.Empty<RecordId>();
         }
     }
 }

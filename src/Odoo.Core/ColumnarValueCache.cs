@@ -19,17 +19,25 @@ namespace Odoo.Core
     public class ColumnarValueCache : IColumnarCache
     {
         // Column storage: (Model, Field) -> ColumnStorage
-        private readonly Dictionary<(int ModelToken, int FieldToken), IColumnStorage> _columns = new();
-        
+        private readonly Dictionary<(int ModelToken, int FieldToken), IColumnStorage> _columns =
+            new();
+
         // Dirty tracking: (Model, Record ID) -> Set of Field Tokens
-        private readonly Dictionary<(int ModelToken, int RecordId), HashSet<int>> _dirtyFields = new();
+        private readonly Dictionary<
+            (int ModelToken, RecordId RecordId),
+            HashSet<int>
+        > _dirtyFields = new();
 
         // --- Batch Operations ---
 
-        public ReadOnlySpan<T> GetColumnSpan<T>(ModelHandle model, int[] ids, FieldHandle field)
+        public ReadOnlySpan<T> GetColumnSpan<T>(
+            ModelHandle model,
+            RecordId[] ids,
+            FieldHandle field
+        )
         {
             var key = (model.Token, field.Token);
-            
+
             if (!_columns.TryGetValue(key, out var storage))
             {
                 // Column doesn't exist yet - return default values
@@ -40,19 +48,24 @@ namespace Odoo.Core
             return storage.GetSpan<T>(ids);
         }
 
-        public void SetColumnValues<T>(ModelHandle model, int[] ids, FieldHandle field, ReadOnlySpan<T> values)
+        public void SetColumnValues<T>(
+            ModelHandle model,
+            RecordId[] ids,
+            FieldHandle field,
+            ReadOnlySpan<T> values
+        )
         {
             if (ids.Length != values.Length)
                 throw new ArgumentException("IDs and values must have same length");
 
             var key = (model.Token, field.Token);
-            
+
             if (!_columns.TryGetValue(key, out var storage))
             {
                 storage = new ColumnStorage<T>();
                 _columns[key] = storage;
             }
-            
+
             storage.SetValues(ids, values);
 
             // Mark all as dirty
@@ -65,10 +78,10 @@ namespace Odoo.Core
         // --- Single Record Operations ---
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public T GetValue<T>(ModelHandle model, int id, FieldHandle field)
+        public T GetValue<T>(ModelHandle model, RecordId id, FieldHandle field)
         {
             var key = (model.Token, field.Token);
-            
+
             if (!_columns.TryGetValue(key, out var storage))
                 return default(T)!;
 
@@ -76,20 +89,20 @@ namespace Odoo.Core
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void SetValue<T>(ModelHandle model, int id, FieldHandle field, T value)
+        public void SetValue<T>(ModelHandle model, RecordId id, FieldHandle field, T value)
         {
             var key = (model.Token, field.Token);
-            
+
             if (!_columns.TryGetValue(key, out var storage))
             {
                 storage = new ColumnStorage<T>();
                 _columns[key] = storage;
             }
-            
+
             storage.SetSingleValue(id, value);
         }
 
-        public bool HasValue(ModelHandle model, int id, FieldHandle field)
+        public bool HasValue(ModelHandle model, RecordId id, FieldHandle field)
         {
             var key = (model.Token, field.Token);
             return _columns.TryGetValue(key, out var storage) && storage.HasValue(id);
@@ -97,7 +110,7 @@ namespace Odoo.Core
 
         // --- Prefetch Operations ---
 
-        public void Prefetch(ModelHandle model, int[] ids, FieldHandle[] fields)
+        public void Prefetch(ModelHandle model, RecordId[] ids, FieldHandle[] fields)
         {
             // In production, this would batch-fetch from database
             // For now, ensure columns exist
@@ -114,29 +127,29 @@ namespace Odoo.Core
         // --- Dirty Tracking ---
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void MarkDirty(ModelHandle model, int id, FieldHandle field)
+        public void MarkDirty(ModelHandle model, RecordId id, FieldHandle field)
         {
             MarkDirtyInternal(model.Token, id, field.Token);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void MarkDirtyInternal(int modelToken, int recordId, int fieldToken)
+        private void MarkDirtyInternal(int modelToken, RecordId recordId, int fieldToken)
         {
             var key = (modelToken, recordId);
-            
+
             if (!_dirtyFields.TryGetValue(key, out var fields))
             {
                 fields = new HashSet<int>();
                 _dirtyFields[key] = fields;
             }
-            
+
             fields.Add(fieldToken);
         }
 
-        public IEnumerable<FieldHandle> GetDirtyFields(ModelHandle model, int id)
+        public IEnumerable<FieldHandle> GetDirtyFields(ModelHandle model, RecordId id)
         {
             var key = (model.Token, id);
-            
+
             if (_dirtyFields.TryGetValue(key, out var fields))
             {
                 return fields.Select(token => new FieldHandle(token)).ToList();
@@ -145,25 +158,23 @@ namespace Odoo.Core
             return Enumerable.Empty<FieldHandle>();
         }
 
-        public void ClearDirty(ModelHandle model, int id)
+        public void ClearDirty(ModelHandle model, RecordId id)
         {
             var key = (model.Token, id);
             _dirtyFields.Remove(key);
         }
 
-        public IEnumerable<int> GetDirtyRecords(ModelHandle model)
+        public IEnumerable<RecordId> GetDirtyRecords(ModelHandle model)
         {
-            return _dirtyFields.Keys
-                .Where(k => k.ModelToken == model.Token)
+            return _dirtyFields
+                .Keys.Where(k => k.ModelToken == model.Token)
                 .Select(k => k.RecordId)
                 .Distinct();
         }
 
         public IEnumerable<int> GetDirtyModels()
         {
-            return _dirtyFields.Keys
-                .Select(k => k.ModelToken)
-                .Distinct();
+            return _dirtyFields.Keys.Select(k => k.ModelToken).Distinct();
         }
 
         public bool HasDirtyRecords => _dirtyFields.Count > 0;
@@ -191,7 +202,9 @@ namespace Odoo.Core
             }
 
             // Clear dirty tracking for this model
-            var dirtyKeysToRemove = _dirtyFields.Keys.Where(k => k.ModelToken == model.Token).ToList();
+            var dirtyKeysToRemove = _dirtyFields
+                .Keys.Where(k => k.ModelToken == model.Token)
+                .ToList();
             foreach (var key in dirtyKeysToRemove)
             {
                 _dirtyFields.Remove(key);
@@ -204,13 +217,17 @@ namespace Odoo.Core
         /// Bulk load data for multiple records and fields.
         /// This is the primary database integration point.
         /// </summary>
-        public void BulkLoad<T>(ModelHandle model, FieldHandle field, Dictionary<int, T> values)
+        public void BulkLoad<T>(
+            ModelHandle model,
+            FieldHandle field,
+            Dictionary<RecordId, T> values
+        )
         {
             if (values.Count == 0)
                 return;
 
             var key = (model.Token, field.Token);
-            
+
             if (!_columns.TryGetValue(key, out var storage))
             {
                 storage = new ColumnStorage<T>();
@@ -231,11 +248,11 @@ namespace Odoo.Core
     /// </summary>
     internal interface IColumnStorage
     {
-        ReadOnlySpan<T> GetSpan<T>(int[] ids);
-        void SetValues<T>(int[] ids, ReadOnlySpan<T> values);
-        T GetSingleValue<T>(int id);
-        void SetSingleValue<T>(int id, T value);
-        bool HasValue(int id);
+        ReadOnlySpan<T> GetSpan<T>(RecordId[] ids);
+        void SetValues<T>(RecordId[] ids, ReadOnlySpan<T> values);
+        T GetSingleValue<T>(RecordId id);
+        void SetSingleValue<T>(RecordId id, T value);
+        bool HasValue(RecordId id);
     }
 
     /// <summary>
@@ -245,25 +262,27 @@ namespace Odoo.Core
     internal class ColumnStorage<T> : IColumnStorage
     {
         private T[] _data;
-        private Dictionary<int, int> _idToIndex;
+        private Dictionary<RecordId, int> _idToIndex;
         private int _count;
         private const int InitialCapacity = 16;
 
         public ColumnStorage()
         {
             _data = ArrayPool<T>.Shared.Rent(InitialCapacity);
-            _idToIndex = new Dictionary<int, int>();
+            _idToIndex = new Dictionary<RecordId, int>();
             _count = 0;
         }
 
-        public ReadOnlySpan<TValue> GetSpan<TValue>(int[] ids)
+        public ReadOnlySpan<TValue> GetSpan<TValue>(RecordId[] ids)
         {
             if (typeof(TValue) != typeof(T))
-                throw new InvalidOperationException($"Type mismatch: expected {typeof(T)}, got {typeof(TValue)}");
+                throw new InvalidOperationException(
+                    $"Type mismatch: expected {typeof(T)}, got {typeof(TValue)}"
+                );
 
             // Build result array with values for requested IDs
             var result = new TValue[ids.Length];
-            
+
             for (int i = 0; i < ids.Length; i++)
             {
                 if (_idToIndex.TryGetValue(ids[i], out int index))
@@ -279,10 +298,12 @@ namespace Odoo.Core
             return result;
         }
 
-        public void SetValues<TValue>(int[] ids, ReadOnlySpan<TValue> values)
+        public void SetValues<TValue>(RecordId[] ids, ReadOnlySpan<TValue> values)
         {
             if (typeof(TValue) != typeof(T))
-                throw new InvalidOperationException($"Type mismatch: expected {typeof(T)}, got {typeof(TValue)}");
+                throw new InvalidOperationException(
+                    $"Type mismatch: expected {typeof(T)}, got {typeof(TValue)}"
+                );
 
             for (int i = 0; i < ids.Length; i++)
             {
@@ -291,10 +312,12 @@ namespace Odoo.Core
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public TValue GetSingleValue<TValue>(int id)
+        public TValue GetSingleValue<TValue>(RecordId id)
         {
             if (typeof(TValue) != typeof(T))
-                throw new InvalidOperationException($"Type mismatch: expected {typeof(T)}, got {typeof(TValue)}");
+                throw new InvalidOperationException(
+                    $"Type mismatch: expected {typeof(T)}, got {typeof(TValue)}"
+                );
 
             if (_idToIndex.TryGetValue(id, out int index))
             {
@@ -304,10 +327,12 @@ namespace Odoo.Core
             return default!;
         }
 
-        public void SetSingleValue<TValue>(int id, TValue value)
+        public void SetSingleValue<TValue>(RecordId id, TValue value)
         {
             if (typeof(TValue) != typeof(T))
-                throw new InvalidOperationException($"Type mismatch: expected {typeof(T)}, got {typeof(TValue)}");
+                throw new InvalidOperationException(
+                    $"Type mismatch: expected {typeof(T)}, got {typeof(TValue)}"
+                );
 
             if (_idToIndex.TryGetValue(id, out int index))
             {
@@ -324,7 +349,7 @@ namespace Odoo.Core
             }
         }
 
-        public bool HasValue(int id)
+        public bool HasValue(RecordId id)
         {
             return _idToIndex.ContainsKey(id);
         }
@@ -340,7 +365,7 @@ namespace Odoo.Core
 
             var newData = ArrayPool<T>.Shared.Rent(newCapacity);
             Array.Copy(_data, newData, _count);
-            
+
             ArrayPool<T>.Shared.Return(_data, clearArray: true);
             _data = newData;
         }

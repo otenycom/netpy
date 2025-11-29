@@ -25,7 +25,7 @@ namespace Odoo.Core
         /// <param name="ids">Array of record IDs to fetch</param>
         /// <param name="field">Field handle (integer token)</param>
         /// <returns>Read-only span containing values for all requested IDs</returns>
-        ReadOnlySpan<T> GetColumnSpan<T>(ModelHandle model, int[] ids, FieldHandle field);
+        ReadOnlySpan<T> GetColumnSpan<T>(ModelHandle model, RecordId[] ids, FieldHandle field);
 
         /// <summary>
         /// Set values for a specific field across multiple records in batch.
@@ -35,7 +35,12 @@ namespace Odoo.Core
         /// <param name="ids">Array of record IDs</param>
         /// <param name="field">Field handle</param>
         /// <param name="values">Values to set (must match length of ids)</param>
-        void SetColumnValues<T>(ModelHandle model, int[] ids, FieldHandle field, ReadOnlySpan<T> values);
+        void SetColumnValues<T>(
+            ModelHandle model,
+            RecordId[] ids,
+            FieldHandle field,
+            ReadOnlySpan<T> values
+        );
 
         // --- Single Record Operations (Optimized through Columnar Backend) ---
 
@@ -48,7 +53,7 @@ namespace Odoo.Core
         /// <param name="id">Record ID</param>
         /// <param name="field">Field handle</param>
         /// <returns>The field value</returns>
-        T GetValue<T>(ModelHandle model, int id, FieldHandle field);
+        T GetValue<T>(ModelHandle model, RecordId id, FieldHandle field);
 
         /// <summary>
         /// Set a single value for a specific record and field.
@@ -58,7 +63,7 @@ namespace Odoo.Core
         /// <param name="id">Record ID</param>
         /// <param name="field">Field handle</param>
         /// <param name="value">Value to set</param>
-        void SetValue<T>(ModelHandle model, int id, FieldHandle field, T value);
+        void SetValue<T>(ModelHandle model, RecordId id, FieldHandle field, T value);
 
         /// <summary>
         /// Check if a value exists in the cache.
@@ -67,7 +72,7 @@ namespace Odoo.Core
         /// <param name="id">Record ID</param>
         /// <param name="field">Field handle</param>
         /// <returns>True if the value is cached</returns>
-        bool HasValue(ModelHandle model, int id, FieldHandle field);
+        bool HasValue(ModelHandle model, RecordId id, FieldHandle field);
 
         // --- Prefetch Operations ---
 
@@ -78,7 +83,7 @@ namespace Odoo.Core
         /// <param name="model">Model handle</param>
         /// <param name="ids">Record IDs to prefetch</param>
         /// <param name="fields">Fields to prefetch</param>
-        void Prefetch(ModelHandle model, int[] ids, FieldHandle[] fields);
+        void Prefetch(ModelHandle model, RecordId[] ids, FieldHandle[] fields);
 
         // --- Dirty Tracking ---
 
@@ -88,7 +93,7 @@ namespace Odoo.Core
         /// <param name="model">Model handle</param>
         /// <param name="id">Record ID</param>
         /// <param name="field">Field handle</param>
-        void MarkDirty(ModelHandle model, int id, FieldHandle field);
+        void MarkDirty(ModelHandle model, RecordId id, FieldHandle field);
 
         /// <summary>
         /// Get all dirty fields for a specific record.
@@ -96,14 +101,14 @@ namespace Odoo.Core
         /// <param name="model">Model handle</param>
         /// <param name="id">Record ID</param>
         /// <returns>Collection of field handles that have been modified</returns>
-        IEnumerable<FieldHandle> GetDirtyFields(ModelHandle model, int id);
+        IEnumerable<FieldHandle> GetDirtyFields(ModelHandle model, RecordId id);
 
         /// <summary>
         /// Clear dirty state for a specific record.
         /// </summary>
         /// <param name="model">Model handle</param>
         /// <param name="id">Record ID</param>
-        void ClearDirty(ModelHandle model, int id);
+        void ClearDirty(ModelHandle model, RecordId id);
 
         /// <summary>
         /// Get all dirty records for a specific model.
@@ -111,7 +116,7 @@ namespace Odoo.Core
         /// </summary>
         /// <param name="model">Model handle</param>
         /// <returns>Collection of record IDs that have dirty fields</returns>
-        IEnumerable<int> GetDirtyRecords(ModelHandle model);
+        IEnumerable<RecordId> GetDirtyRecords(ModelHandle model);
 
         /// <summary>
         /// Get all models that have dirty records.
@@ -141,7 +146,7 @@ namespace Odoo.Core
         /// <param name="model">Model handle</param>
         /// <param name="field">Field handle</param>
         /// <param name="values">Dictionary mapping record IDs to values</param>
-        void BulkLoad<T>(ModelHandle model, FieldHandle field, Dictionary<int, T> values);
+        void BulkLoad<T>(ModelHandle model, FieldHandle field, Dictionary<RecordId, T> values);
 
         // --- Cache Management ---
 

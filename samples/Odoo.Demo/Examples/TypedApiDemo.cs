@@ -1,23 +1,23 @@
 using System;
 using System.Linq;
 using System.Reflection;
-using Odoo.Core;
-using Odoo.Core.Pipeline;
-using Odoo.Core.Modules;
-// Models defined in the Demo project - source generator creates typed code for these
-using Odoo.Models;
-// Import unified wrappers and schema from Demo (uses model name -> ResPartner, Product)
-using Odoo.Generated.OdooDemo;
-using ModelSchema = Odoo.Generated.OdooDemo.ModelSchema;
 // Import typed access from the addons (base and sale)
 using Odoo.Base.Models;
+using Odoo.Core;
+using Odoo.Core.Modules;
+using Odoo.Core.Pipeline;
+// Import unified wrappers and schema from Demo (uses model name -> ResPartner, Product)
+using Odoo.Generated.OdooDemo;
+// Models defined in the Demo project - source generator creates typed code for these
+using Odoo.Models;
 using Odoo.Sale.Models;
+using ModelSchema = Odoo.Generated.OdooDemo.ModelSchema;
 
 namespace Odoo.Examples
 {
     /// <summary>
     /// Demonstrates all the typed goodies available when using the Odoo Source Generator.
-    /// 
+    ///
     /// New Unified Wrapper Architecture:
     /// - ModelSchema.{ClassName}: Static class with compile-time tokens (e.g., ModelSchema.ResPartner)
     /// - env.GetRecord&lt;T&gt;(id): Get a single record from identity map
@@ -36,26 +36,31 @@ namespace Odoo.Examples
             // Create environment with registry
             var registryBuilder = new RegistryBuilder();
             var pipelineRegistry = new PipelineRegistry();
-            
+
             var assemblies = new[]
             {
                 typeof(IPartnerBase).Assembly,
                 typeof(IPartnerSaleExtension).Assembly,
-                typeof(TypedApiDemo).Assembly
+                typeof(TypedApiDemo).Assembly,
             };
 
             foreach (var assembly in assemblies)
             {
                 registryBuilder.ScanAssembly(assembly);
             }
-            
+
             var modelRegistry = registryBuilder.Build();
 
             foreach (var assembly in assemblies)
             {
-                 var registrars = assembly.GetTypes()
-                    .Where(t => typeof(IModuleRegistrar).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
-                
+                var registrars = assembly
+                    .GetTypes()
+                    .Where(t =>
+                        typeof(IModuleRegistrar).IsAssignableFrom(t)
+                        && !t.IsInterface
+                        && !t.IsAbstract
+                    );
+
                 foreach (var registrarType in registrars)
                 {
                     var registrar = (IModuleRegistrar)Activator.CreateInstance(registrarType)!;
@@ -63,10 +68,14 @@ namespace Odoo.Examples
                     registrar.RegisterFactories(modelRegistry);
                 }
             }
-            
+
             pipelineRegistry.CompileAll();
 
-            var env = new OdooEnvironment(userId: 1, modelRegistry: modelRegistry, pipelineRegistry: pipelineRegistry);
+            var env = new OdooEnvironment(
+                userId: 1,
+                modelRegistry: modelRegistry,
+                pipelineRegistry: pipelineRegistry
+            );
 
             // ═══════════════════════════════════════════════════════════════════
             // 1. TYPED SCHEMA ACCESS - Compile-time tokens eliminate string hashing
@@ -75,16 +84,30 @@ namespace Odoo.Examples
             Console.WriteLine("║  1. TYPED SCHEMA ACCESS (ModelSchema)                       ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
-            
+
             Console.WriteLine("Generated ModelSchema provides compile-time tokens:");
-            Console.WriteLine($"  ModelSchema.ResPartner.ModelToken = {ModelSchema.ResPartner.ModelToken}");
-            Console.WriteLine($"  ModelSchema.ResPartner.Name       = {ModelSchema.ResPartner.Name}");
-            Console.WriteLine($"  ModelSchema.ResPartner.Email      = {ModelSchema.ResPartner.Email}");
-            Console.WriteLine($"  ModelSchema.ResPartner.IsCompany  = {ModelSchema.ResPartner.IsCompany}");
+            Console.WriteLine(
+                $"  ModelSchema.ResPartner.ModelToken = {ModelSchema.ResPartner.ModelToken}"
+            );
+            Console.WriteLine(
+                $"  ModelSchema.ResPartner.Name       = {ModelSchema.ResPartner.Name}"
+            );
+            Console.WriteLine(
+                $"  ModelSchema.ResPartner.Email      = {ModelSchema.ResPartner.Email}"
+            );
+            Console.WriteLine(
+                $"  ModelSchema.ResPartner.IsCompany  = {ModelSchema.ResPartner.IsCompany}"
+            );
             Console.WriteLine();
-            Console.WriteLine($"  ModelSchema.ProductProduct.ModelToken = {ModelSchema.ProductProduct.ModelToken}");
-            Console.WriteLine($"  ModelSchema.ProductProduct.Name       = {ModelSchema.ProductProduct.Name}");
-            Console.WriteLine($"  ModelSchema.ProductProduct.ListPrice  = {ModelSchema.ProductProduct.ListPrice}");
+            Console.WriteLine(
+                $"  ModelSchema.ProductProduct.ModelToken = {ModelSchema.ProductProduct.ModelToken}"
+            );
+            Console.WriteLine(
+                $"  ModelSchema.ProductProduct.Name       = {ModelSchema.ProductProduct.Name}"
+            );
+            Console.WriteLine(
+                $"  ModelSchema.ProductProduct.ListPrice  = {ModelSchema.ProductProduct.ListPrice}"
+            );
             Console.WriteLine();
 
             // Seed some data using typed tokens
@@ -116,12 +139,17 @@ namespace Odoo.Examples
             Console.WriteLine();
 
             // RecordSet access using new API
-            var partners = env.GetRecords<IPartner>("res.partner", new[] { 100, 101, 102 });
+            var partners = env.GetRecords<IPartner>(
+                "res.partner",
+                new RecordId[] { 100, 101, 102 }
+            );
             Console.WriteLine("RecordSet with typed iteration:");
-            Console.WriteLine($"  var partners = env.GetRecords<IPartner>(\"res.partner\", new[] {{ 100, 101, 102 }});");
+            Console.WriteLine(
+                $"  var partners = env.GetRecords<IPartner>(\"res.partner\", new[] {{ 100, 101, 102 }});"
+            );
             Console.WriteLine($"  partners.Count => {partners.Count}");
             Console.WriteLine();
-            
+
             foreach (var p in partners)
             {
                 Console.WriteLine($"  - {p.Name} (ID: {p.Id}) - Company: {p.IsCompany}");
@@ -157,13 +185,15 @@ namespace Odoo.Examples
             Console.WriteLine("  });");
             Console.WriteLine();
 
-            var newPartner = env.Create(new ResPartnerValues
-            {
-                Name = "ACME Corporation",
-                Email = "contact@acme.com",
-                IsCompany = true,
-                Active = true
-            });
+            var newPartner = env.Create(
+                new ResPartnerValues
+                {
+                    Name = "ACME Corporation",
+                    Email = "contact@acme.com",
+                    IsCompany = true,
+                    Active = true,
+                }
+            );
 
             Console.WriteLine($"Created partner ID: {newPartner.Id}");
             Console.WriteLine($"  Name:      {newPartner.Name}");
@@ -184,10 +214,12 @@ namespace Odoo.Examples
             Console.WriteLine("  var p2 = env.GetRecord<IPartner>(\"res.partner\", 100);");
             Console.WriteLine("  ReferenceEquals(p1, p2) => true // Same instance!");
             Console.WriteLine();
-            
+
             var p1 = env.GetRecord<IPartner>("res.partner", 100);
             var p2 = env.GetRecord<IPartner>("res.partner", 100);
-            Console.WriteLine($"  Actual result: ReferenceEquals(p1, p2) => {ReferenceEquals(p1, p2)}");
+            Console.WriteLine(
+                $"  Actual result: ReferenceEquals(p1, p2) => {ReferenceEquals(p1, p2)}"
+            );
             Console.WriteLine();
 
             // ═══════════════════════════════════════════════════════════════════
@@ -208,24 +240,26 @@ namespace Odoo.Examples
             var email = env.Columns.GetValue<string>(
                 ModelSchema.ResPartner.ModelToken,
                 100,
-                ModelSchema.ResPartner.Email);
+                ModelSchema.ResPartner.Email
+            );
             Console.WriteLine($"  Result: \"{email}\"");
             Console.WriteLine();
 
             // Batch columnar access
             Console.WriteLine("Batch columnar access for high-performance scenarios:");
-            Console.WriteLine("  var ids = new[] { 100, 101, 102 };");
+            Console.WriteLine("  var ids = new RecordId[] { 100, 101, 102 };");
             Console.WriteLine("  var names = env.Columns.GetColumnSpan<string>(");
             Console.WriteLine("      ModelSchema.ResPartner.ModelToken,");
             Console.WriteLine("      ids,");
             Console.WriteLine("      ModelSchema.ResPartner.Name);");
             Console.WriteLine();
 
-            var ids = new[] { 100, 101, 102 };
+            var ids = new RecordId[] { 100, 101, 102 };
             var names = env.Columns.GetColumnSpan<string>(
                 ModelSchema.ResPartner.ModelToken,
                 ids,
-                ModelSchema.ResPartner.Name);
+                ModelSchema.ResPartner.Name
+            );
 
             Console.WriteLine($"  Batch results ({names.Length} values):");
             for (int i = 0; i < names.Length; i++)
@@ -247,25 +281,29 @@ namespace Odoo.Examples
 
             Console.WriteLine("All models with [OdooModel] attribute get generated code:");
             Console.WriteLine();
-            
+
             Console.WriteLine("  // Product operations");
             var product = env.GetRecord<IProduct>("product.product", 200);
-            Console.WriteLine($"  var product = env.GetRecord<IProduct>(\"product.product\", 200);");
+            Console.WriteLine(
+                $"  var product = env.GetRecord<IProduct>(\"product.product\", 200);"
+            );
             Console.WriteLine($"  product.Name => \"{product.Name}\"");
             Console.WriteLine($"  product.ListPrice => {product.ListPrice}");
             Console.WriteLine($"  product.ProductType => \"{product.ProductType}\"");
             Console.WriteLine();
 
             Console.WriteLine("  // Create typed product");
-            var newProduct = env.Create(new ProductProductValues
-            {
-                Name = "Widget Pro",
-                ListPrice = 99.99m,
-                Cost = 45.00m,
-                ProductType = "consu",
-                CanBeSold = true,
-                Active = true
-            });
+            var newProduct = env.Create(
+                new ProductProductValues
+                {
+                    Name = "Widget Pro",
+                    ListPrice = 99.99m,
+                    Cost = 45.00m,
+                    ProductType = "consu",
+                    CanBeSold = true,
+                    Active = true,
+                }
+            );
             Console.WriteLine($"  Created product: {newProduct.Name} (ID: {newProduct.Id})");
             Console.WriteLine();
 
@@ -276,11 +314,11 @@ namespace Odoo.Examples
             Console.WriteLine("║  8. ADDON-EXTENDED TYPES (res.partner with sale fields)     ║");
             Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
-            
+
             Console.WriteLine("When you reference addon modules at compile-time, the unified");
             Console.WriteLine("wrapper implements ALL visible interfaces for that model!");
             Console.WriteLine();
-            
+
             Console.WriteLine("  // Odoo.Base defines IPartnerBase:");
             Console.WriteLine("  //   - Name, Email, IsCompany");
             Console.WriteLine("  // Odoo.Sale extends it with IPartnerSaleExtension:");
@@ -292,7 +330,9 @@ namespace Odoo.Examples
 
             Console.WriteLine("  === Using IPartnerBase (from Odoo.Base) ===");
             Console.WriteLine();
-            Console.WriteLine("  var basePartner = env.GetRecord<IPartnerBase>(\"res.partner\", 500);");
+            Console.WriteLine(
+                "  var basePartner = env.GetRecord<IPartnerBase>(\"res.partner\", 500);"
+            );
             var basePartner = env.GetRecord<IPartnerBase>("res.partner", 500);
             Console.WriteLine($"  basePartner.Name      => \"{basePartner.Name}\"");
             Console.WriteLine($"  basePartner.Email     => \"{basePartner.Email}\"");
@@ -302,7 +342,9 @@ namespace Odoo.Examples
             Console.WriteLine("  === Using IPartnerSaleExtension (from Odoo.Sale) ===");
             Console.WriteLine("  Same record, different interface - SAME INSTANCE!");
             Console.WriteLine();
-            Console.WriteLine("  var salePartner = env.GetRecord<IPartnerSaleExtension>(\"res.partner\", 500);");
+            Console.WriteLine(
+                "  var salePartner = env.GetRecord<IPartnerSaleExtension>(\"res.partner\", 500);"
+            );
             var salePartner = env.GetRecord<IPartnerSaleExtension>("res.partner", 500);
             Console.WriteLine($"  // Base fields (inherited):");
             Console.WriteLine($"  salePartner.Name        => \"{salePartner.Name}\"");
@@ -314,8 +356,10 @@ namespace Odoo.Examples
             Console.WriteLine();
 
             Console.WriteLine("  === Identity Map Proof ===");
-            Console.WriteLine("  ReferenceEquals(basePartner, salePartner) => " + 
-                $"{ReferenceEquals(basePartner, salePartner)}");
+            Console.WriteLine(
+                "  ReferenceEquals(basePartner, salePartner) => "
+                    + $"{ReferenceEquals(basePartner, salePartner)}"
+            );
             Console.WriteLine("  Both interfaces return the SAME unified wrapper instance!");
             Console.WriteLine();
 
@@ -346,107 +390,127 @@ namespace Odoo.Examples
         private static void SeedTypedData(IColumnarCache cache)
         {
             // Use typed schema tokens for seeding data
-            var names = new Dictionary<int, string>
+            var names = new Dictionary<RecordId, string>
             {
                 [100] = "Odoo S.A.",
                 [101] = "Mitchell Admin",
-                [102] = "Azure Interior"
+                [102] = "Azure Interior",
             };
             cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Name, names);
 
-            var emails = new Dictionary<int, string?>
+            var emails = new Dictionary<RecordId, string>
             {
                 [100] = "info@odoo.com",
                 [101] = "admin@example.com",
-                [102] = "azure@example.com"
+                [102] = "azure@example.com",
             };
             cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Email, emails);
 
-            var isCompany = new Dictionary<int, bool>
+            var isCompany = new Dictionary<RecordId, bool>
             {
                 [100] = true,
                 [101] = false,
-                [102] = true
+                [102] = true,
             };
-            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.IsCompany, isCompany);
+            cache.BulkLoad(
+                ModelSchema.ResPartner.ModelToken,
+                ModelSchema.ResPartner.IsCompany,
+                isCompany
+            );
 
-            var streets = new Dictionary<int, string>
+            var streets = new Dictionary<RecordId, string>
             {
                 [100] = "Avenue de Tervueren 421",
                 [101] = "215 Vine St",
-                [102] = "4557 De Silva St"
+                [102] = "4557 De Silva St",
             };
-            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Street, streets);
+            cache.BulkLoad(
+                ModelSchema.ResPartner.ModelToken,
+                ModelSchema.ResPartner.Street,
+                streets
+            );
 
-            var cities = new Dictionary<int, string>
+            var cities = new Dictionary<RecordId, string>
             {
                 [100] = "Brussels",
                 [101] = "Portland",
-                [102] = "Fremont"
+                [102] = "Fremont",
             };
             cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.City, cities);
         }
 
         private static void SeedProductData(IColumnarCache cache)
         {
-            var productNames = new Dictionary<int, string>
+            var productNames = new Dictionary<RecordId, string>
             {
                 [200] = "Office Chair",
                 [201] = "Desk Lamp",
-                [202] = "Keyboard"
+                [202] = "Keyboard",
             };
-            cache.BulkLoad(ModelSchema.ProductProduct.ModelToken, ModelSchema.ProductProduct.Name, productNames);
+            cache.BulkLoad(
+                ModelSchema.ProductProduct.ModelToken,
+                ModelSchema.ProductProduct.Name,
+                productNames
+            );
 
-            var prices = new Dictionary<int, decimal>
+            var prices = new Dictionary<RecordId, decimal>
             {
                 [200] = 299.99m,
                 [201] = 49.99m,
-                [202] = 79.99m
+                [202] = 79.99m,
             };
-            cache.BulkLoad(ModelSchema.ProductProduct.ModelToken, ModelSchema.ProductProduct.ListPrice, prices);
+            cache.BulkLoad(
+                ModelSchema.ProductProduct.ModelToken,
+                ModelSchema.ProductProduct.ListPrice,
+                prices
+            );
 
-            var types = new Dictionary<int, string>
+            var types = new Dictionary<RecordId, string>
             {
                 [200] = "consu",
                 [201] = "consu",
-                [202] = "consu"
+                [202] = "consu",
             };
-            cache.BulkLoad(ModelSchema.ProductProduct.ModelToken, ModelSchema.ProductProduct.ProductType, types);
+            cache.BulkLoad(
+                ModelSchema.ProductProduct.ModelToken,
+                ModelSchema.ProductProduct.ProductType,
+                types
+            );
         }
 
         private static void SeedExtendedPartnerData(IColumnarCache cache)
         {
             // Use unified model token for all partner fields
-            var names = new Dictionary<int, string>
-            {
-                [500] = "Premier Solutions Inc"
-            };
+            var names = new Dictionary<RecordId, string> { [500] = "Premier Solutions Inc" };
             cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Name, names);
 
-            var emails = new Dictionary<int, string?>
+            var emails = new Dictionary<RecordId, string>
             {
-                [500] = "contact@premiersolutions.com"
+                [500] = "contact@premiersolutions.com",
             };
             cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Email, emails);
 
-            var isCompany = new Dictionary<int, bool>
-            {
-                [500] = true
-            };
-            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.IsCompany, isCompany);
+            var isCompany = new Dictionary<RecordId, bool> { [500] = true };
+            cache.BulkLoad(
+                ModelSchema.ResPartner.ModelToken,
+                ModelSchema.ResPartner.IsCompany,
+                isCompany
+            );
 
             // Sale-specific fields use same model token (unified model)
-            var isCustomer = new Dictionary<int, bool>
-            {
-                [500] = true
-            };
-            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.IsCustomer, isCustomer);
+            var isCustomer = new Dictionary<RecordId, bool> { [500] = true };
+            cache.BulkLoad(
+                ModelSchema.ResPartner.ModelToken,
+                ModelSchema.ResPartner.IsCustomer,
+                isCustomer
+            );
 
-            var creditLimit = new Dictionary<int, decimal>
-            {
-                [500] = 25000.00m
-            };
-            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.CreditLimit, creditLimit);
+            var creditLimit = new Dictionary<RecordId, decimal> { [500] = 25000.00m };
+            cache.BulkLoad(
+                ModelSchema.ResPartner.ModelToken,
+                ModelSchema.ResPartner.CreditLimit,
+                creditLimit
+            );
         }
     }
 }

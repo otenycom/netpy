@@ -1,13 +1,13 @@
 using System;
 using System.Linq;
 using System.Reflection;
-using Odoo.Core;
-using Odoo.Core.Pipeline;
-using Odoo.Core.Modules;
 using Odoo.Base.Models;
-using Odoo.Sale.Models;
+using Odoo.Core;
+using Odoo.Core.Modules;
+using Odoo.Core.Pipeline;
 // Import unified wrappers and schema from the generated code
 using Odoo.Generated.OdooDemo;
+using Odoo.Sale.Models;
 using Schema = Odoo.Generated.OdooDemo.ModelSchema;
 
 namespace Odoo.Examples
@@ -25,26 +25,31 @@ namespace Odoo.Examples
             // 1. Create an environment with model registry
             var registryBuilder = new RegistryBuilder();
             var pipelineRegistry = new PipelineRegistry();
-            
+
             var assemblies = new[]
             {
-                typeof(IPartnerBase).Assembly,      // Odoo.Base
+                typeof(IPartnerBase).Assembly, // Odoo.Base
                 typeof(IPartnerSaleExtension).Assembly, // Odoo.Sale
-                typeof(BasicUsageDemo).Assembly     // Demo project
+                typeof(BasicUsageDemo).Assembly, // Demo project
             };
 
             foreach (var assembly in assemblies)
             {
                 registryBuilder.ScanAssembly(assembly);
             }
-            
+
             var modelRegistry = registryBuilder.Build();
 
             foreach (var assembly in assemblies)
             {
-                var registrars = assembly.GetTypes()
-                    .Where(t => typeof(IModuleRegistrar).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
-                
+                var registrars = assembly
+                    .GetTypes()
+                    .Where(t =>
+                        typeof(IModuleRegistrar).IsAssignableFrom(t)
+                        && !t.IsInterface
+                        && !t.IsAbstract
+                    );
+
                 foreach (var registrarType in registrars)
                 {
                     var registrar = (IModuleRegistrar)Activator.CreateInstance(registrarType)!;
@@ -52,10 +57,14 @@ namespace Odoo.Examples
                     registrar.RegisterFactories(modelRegistry);
                 }
             }
-            
+
             pipelineRegistry.CompileAll();
 
-            var env = new OdooEnvironment(userId: 1, modelRegistry: modelRegistry, pipelineRegistry: pipelineRegistry);
+            var env = new OdooEnvironment(
+                userId: 1,
+                modelRegistry: modelRegistry,
+                pipelineRegistry: pipelineRegistry
+            );
 
             Console.WriteLine("1. Created environment for user ID: 1\n");
 
@@ -74,17 +83,22 @@ namespace Odoo.Examples
             Console.WriteLine("3. Modifying partner data:");
             partner.Email = "updated@odoo.com";
             Console.WriteLine($"   Updated Email: {partner.Email}");
-            
+
             // Show dirty fields
             var dirtyFields = env.Columns.GetDirtyFields(Schema.ResPartner.ModelToken, 10);
-            Console.WriteLine($"   Dirty Fields: {string.Join(", ", dirtyFields.Select(f => $"Field({f.Token})"))}");
+            Console.WriteLine(
+                $"   Dirty Fields: {string.Join(", ", dirtyFields.Select(f => $"Field({f.Token})"))}"
+            );
             Console.WriteLine();
 
             // 5. Access multiple records (RecordSet) using new GetRecords<T> API
             Console.WriteLine("4. Working with multiple records:");
-            var partners = env.GetRecords<IPartnerBase>("res.partner", new[] { 10, 11, 12 });
+            var partners = env.GetRecords<IPartnerBase>(
+                "res.partner",
+                new RecordId[] { 10, 11, 12 }
+            );
             Console.WriteLine($"   Total partners: {partners.Count}");
-            
+
             foreach (var p in partners)
             {
                 Console.WriteLine($"   - {p.Name} (ID: {p.Id})");
@@ -122,27 +136,27 @@ namespace Odoo.Examples
         private static void SeedSampleData(IColumnarCache cache)
         {
             // Load data using typed BulkLoad with proper schema tokens
-            var names = new Dictionary<int, string>
+            var names = new Dictionary<RecordId, string>
             {
                 [10] = "Odoo S.A.",
                 [11] = "Mitchell Admin",
-                [12] = "Azure Interior"
+                [12] = "Azure Interior",
             };
             cache.BulkLoad(Schema.ResPartner.ModelToken, Schema.ResPartner.Name, names);
 
-            var emails = new Dictionary<int, string?>
+            var emails = new Dictionary<RecordId, string>
             {
                 [10] = "info@odoo.com",
                 [11] = "admin@example.com",
-                [12] = "azure@example.com"
+                [12] = "azure@example.com",
             };
             cache.BulkLoad(Schema.ResPartner.ModelToken, Schema.ResPartner.Email, emails);
 
-            var isCompany = new Dictionary<int, bool>
+            var isCompany = new Dictionary<RecordId, bool>
             {
                 [10] = true,
                 [11] = false,
-                [12] = true
+                [12] = true,
             };
             cache.BulkLoad(Schema.ResPartner.ModelToken, Schema.ResPartner.IsCompany, isCompany);
         }
