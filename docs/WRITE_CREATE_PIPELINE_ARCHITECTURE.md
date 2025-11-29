@@ -1,8 +1,14 @@
 # Write/Create Pipeline Architecture
 
+## Implementation Status: ✅ COMPLETE
+
+This architecture has been fully implemented. All phases are complete and the solution builds successfully.
+
+**Implementation Date:** November 2024
+
 ## Executive Summary
 
-This document proposes improvements to align our C# ORM with Odoo's extensibility model while maintaining our distinctive features: **type safety** and **high performance**.
+This document describes our C# ORM's extensibility model, which is aligned with Odoo's patterns while maintaining our distinctive features: **type safety** and **high performance**.
 
 The key change: **Property setters delegate to a unified `Write()` method with pipeline support**, rather than having individual pipelines per property setter.
 
@@ -861,3 +867,430 @@ public class ModelProxy
 4. ✅ **Computed fields** - `[OdooCompute]` + `[OdooDepends]` attributes
 5. ✅ **Flush pattern** - Dirty tracking + explicit flush
 6. ✅ **Dual API** - Type-safe Values struct + dynamic Dictionary layer
+
+---
+
+## Part 12: Implementation Details
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| [`src/Odoo.Core/DirtyTracker.cs`](../src/Odoo.Core/DirtyTracker.cs) | Centralized dirty tracking for field modifications |
+| [`src/Odoo.Core/ComputeTracker.cs`](../src/Odoo.Core/ComputeTracker.cs) | Tracks computed fields needing recomputation with dependency graph |
+| [`src/Odoo.Core/Attributes/ComputedFieldAttributes.cs`](../src/Odoo.Core/Attributes/ComputedFieldAttributes.cs) | All computed field attributes |
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| [`FieldSchema.cs`](../src/Odoo.Core/Modules/FieldSchema.cs) | Added computed field properties: `IsComputed`, `ComputeMethodName`, `Dependencies`, etc. |
+| [`ModelSchema.cs`](../src/Odoo.Core/Modules/ModelSchema.cs) | Added field dependency graph and computed field registration |
+| [`IColumnarCache.cs`](../src/Odoo.Core/IColumnarCache.cs) | Added flush-related methods: `GetDirtyRecords()`, `GetDirtyModels()`, etc. |
+| [`ColumnarValueCache.cs`](../src/Odoo.Core/ColumnarValueCache.cs) | Implemented new flush-related interface methods |
+| [`OdooEnvironment.cs`](../src/Odoo.Core/OdooEnvironment.cs) | Added `DirtyTracker`, `ComputeTracker`, `Flush()`, `Modified()` methods |
+| [`OdooModelGenerator.cs`](../src/Odoo.SourceGenerator/OdooModelGenerator.cs) | Complete rewrite for Odoo-aligned pattern |
+
+### Generated Code Examples
+
+The source generator now produces Odoo-aligned code:
+
+#### Wrapper Property (Direct Cache Read + Write Pipeline)
+
+```csharp
+// Generated in {Model}.g.cs
+public sealed class Partner : IPartnerBase, IRecordWrapper
+{
+    private readonly RecordHandle _handle;
+
+    public string Name
+    {
+        // GETTER: Direct cache read (no pipeline overhead) - Odoo aligned
+        get => Env.Columns.GetValue<string>(
+            ModelSchema.Partner.ModelToken, Id, ModelSchema.Partner.Name);
+        
+        // SETTER: Delegate to unified Write() pipeline - Odoo aligned
+        set
+        {
+            var vals = new Dictionary<string, object?> { { "name", value } };
+            PartnerPipelines.Write(_handle, vals);
+        }
+    }
+}
+```
+
+#### Unified Write Pipeline
+
+```csharp
+// Generated in {Model}Pipelines.g.cs
+public static class PartnerPipelines
+{
+    /// <summary>
+    /// Unified Write pipeline - THE single extensibility point for all field assignments.
+    /// Override this to add validation, onchange logic, or business rules.
+    /// </summary>
+    public static void Write(RecordHandle handle, Dictionary<string, object?> vals)
+    {
+        var pipeline = handle.Env.GetPipeline<Action<RecordHandle, Dictionary<string, object?>>>(
+            "res.partner", "write");
+        pipeline(handle, vals);
+    }
+    
+    /// <summary>
+    /// Base Write implementation - applies values to cache and marks dirty.
+    /// </summary>
+    public static void Write_Base(RecordHandle handle, Dictionary<string, object?> vals)
+    {
+        if (vals.TryGetValue("name", out var nameVal) && nameVal is string nameTyped)
+        {
+            handle.Env.Columns.SetValue(
+                ModelSchema.Partner.ModelToken, handle.Id,
+                ModelSchema.Partner.Name, nameTyped);
+            handle.Env.Columns.MarkDirty(
+                ModelSchema.Partner.ModelToken, handle.Id,
+                ModelSchema.Partner.Name);
+        }
+        // ... other fields ...
+    }
+}
+```
+
+#### Unified Create Pipeline
+
+```csharp
+// Generated in {Model}Pipelines.g.cs
+public static Partner Create(IEnvironment env, Dictionary<string, object?> vals)
+{
+    var pipeline = env.GetPipeline<Func<IEnvironment, Dictionary<string, object?>, Partner>>(
+        "res.partner", "create");
+    return pipeline(env, vals);
+}
+
+public static Partner Create_Base(IEnvironment env, Dictionary<string, object?> vals)
+{
+    var newId = env.IdGenerator.NextId("res.partner");
+    var modelToken = ModelSchema.Partner.ModelToken;
+    var handle = new RecordHandle(env, newId, modelToken);
+    var record = new Partner(handle);
+    
+    // Register in identity map for reference equality
+    if (env is OdooEnvironment odooEnv)
+    {
+        odooEnv.RegisterInIdentityMap(modelToken.Token, newId, record);
+    }
+    
+    // Apply initial values via Write_Base
+    Write_Base(handle, vals);
+    
+    return record;
+}
+```
+
+---
+
+## Part 13: Usage Examples
+
+### Example 1: Basic Property Assignment
+
+```csharp
+// Create environment
+var env = new OdooEnvironment(userId: 1, modelRegistry: registry);
+
+// Get a record
+var partner = env.GetRecord<IPartnerBase>("res.partner", 1);
+
+// Property assignment goes through Write() pipeline
+partner.Name = "Acme Corp";  // → PartnerPipelines.Write(handle, {"name": "Acme Corp"})
+
+// Explicit flush to persist to database
+env.Flush();
+```
+
+### Example 2: Creating Records
+
+```csharp
+// Type-safe creation with Values struct
+var newPartner = env.Create(new PartnerValues
+{
+    Name = "New Partner",
+    IsCompany = true
+});
+
+// Or dynamic creation for Python integration
+var vals = new Dictionary<string, object?>
+{
+    { "name", "Dynamic Partner" },
+    { "is_company", false }
+};
+var dynamicPartner = PartnerPipelines.Create(env, vals);
+```
+
+### Example 3: Overriding Write in a Module
+
+```csharp
+// In your module's logic class
+public static class PartnerSaleExtensions
+{
+    /// <summary>
+    /// Sale module extension for Partner write.
+    /// Adds validation when partner becomes a company.
+    /// </summary>
+    [OdooLogic("res.partner", "write")]
+    public static void Write_SaleValidation(
+        RecordHandle handle,
+        Dictionary<string, object?> vals,
+        Action<RecordHandle, Dictionary<string, object?>> super)  // super = next in pipeline
+    {
+        // PRE-WRITE: Validation and business logic
+        if (vals.TryGetValue("is_company", out var isCompanyVal) &&
+            isCompanyVal is true)
+        {
+            // Validate company has required fields
+            var existingName = handle.Env.Columns.GetValue<string>(
+                ModelSchema.Partner.ModelToken, handle.Id, ModelSchema.Partner.Name);
+            
+            if (string.IsNullOrWhiteSpace(existingName) && !vals.ContainsKey("name"))
+            {
+                throw new ValidationException("Company must have a name");
+            }
+            
+            Console.WriteLine($"Partner {handle.Id} is becoming a company!");
+        }
+        
+        // Call next in pipeline (eventually reaches Write_Base)
+        super(handle, vals);
+        
+        // POST-WRITE: Side effects
+        if (vals.ContainsKey("is_company"))
+        {
+            // Update related sale orders, send notifications, etc.
+            UpdateRelatedSaleOrders(handle);
+        }
+    }
+}
+```
+
+### Example 4: Overriding Create in a Module
+
+```csharp
+public static class PartnerAccountExtensions
+{
+    /// <summary>
+    /// Account module extension for Partner create.
+    /// Auto-creates receivable/payable accounts for new partners.
+    /// </summary>
+    [OdooLogic("res.partner", "create")]
+    public static Partner Create_AccountDefaults(
+        IEnvironment env,
+        Dictionary<string, object?> vals,
+        Func<IEnvironment, Dictionary<string, object?>, Partner> super)
+    {
+        // PRE-CREATE: Add default values
+        if (!vals.ContainsKey("property_account_receivable_id"))
+        {
+            vals["property_account_receivable_id"] = GetDefaultReceivableAccount(env);
+        }
+        
+        // Call next in pipeline
+        var partner = super(env, vals);
+        
+        // POST-CREATE: Create related records
+        CreatePartnerAccountingEntries(partner);
+        
+        return partner;
+    }
+}
+```
+
+### Example 5: Computed Fields
+
+```csharp
+// In interface definition
+[OdooModel("res.partner")]
+public interface IPartnerBase : IOdooRecord
+{
+    string Name { get; set; }
+    
+    [OdooField("total_revenue")]
+    [OdooCompute("ComputeRevenue")]
+    [OdooDepends("sale_order_ids.amount_total")]
+    decimal TotalRevenue { get; }  // Computed - no setter
+}
+
+// Compute method
+public static class PartnerComputeMethods
+{
+    [OdooCompute("res.partner", "total_revenue")]
+    public static void ComputeRevenue(RecordHandle handle)
+    {
+        // Get related sale orders and sum amounts
+        var partner = handle.As<IPartnerBase>();
+        var total = partner.SaleOrderIds.Sum(o => o.AmountTotal);
+        
+        // Set computed value (bypasses normal Write pipeline)
+        handle.Env.Columns.SetValue(
+            ModelSchema.Partner.ModelToken, handle.Id,
+            ModelSchema.Partner.TotalRevenue, total);
+    }
+}
+```
+
+### Example 6: Flush and Dirty Tracking
+
+```csharp
+// Multiple modifications
+partner1.Name = "Updated 1";  // Marked dirty
+partner2.Name = "Updated 2";  // Marked dirty
+partner2.IsCompany = true;    // Marked dirty
+
+// Check what's dirty
+var dirtyFields = env.DirtyTracker.GetDirtyFields("res.partner", partner2.Id);
+// Returns: ["name", "is_company"]
+
+// Flush all pending changes to database
+env.Flush();  // Executes UPDATE statements for all dirty records
+
+// Or flush specific model
+env.FlushModel("res.partner");
+```
+
+### Example 7: Module Registration
+
+```csharp
+// Generated ModuleRegistrar for your module
+public class ModuleRegistrar : IModuleRegistrar
+{
+    public void RegisterPipelines(IPipelineBuilder builder)
+    {
+        // Register base Write/Create pipelines
+        builder.RegisterBase("res.partner", "write",
+            (Action<RecordHandle, Dictionary<string, object?>>)PartnerPipelines.Write_Base);
+        builder.RegisterBase("res.partner", "create",
+            (Func<IEnvironment, Dictionary<string, object?>, Partner>)PartnerPipelines.Create_Base);
+        
+        // Overrides are registered separately with priority
+        builder.RegisterOverride("res.partner", "write", 10,
+            (Action<RecordHandle, Dictionary<string, object?>, Action<RecordHandle, Dictionary<string, object?>>>)
+            PartnerSaleExtensions.Write_SaleValidation);
+    }
+    
+    public void RegisterFactories(ModelRegistry modelRegistry)
+    {
+        modelRegistry.RegisterFactory("res.partner",
+            (env, id) => new Partner(new RecordHandle(env, id, ModelSchema.Partner.ModelToken)));
+    }
+}
+```
+
+---
+
+## Part 14: Comparison with Odoo
+
+| Aspect | Odoo (Python) | Our C# Implementation |
+|--------|---------------|----------------------|
+| **Property getter** | `Field.__get__` → cache | Direct cache read |
+| **Property setter** | `Field.__set__` → `write()` | Setter → `Write()` pipeline |
+| **Write extensibility** | Override `write()` method | Pipeline with `[OdooLogic]` |
+| **Create extensibility** | Override `create()` method | Pipeline with `[OdooLogic]` |
+| **Computed fields** | `@api.depends` decorator | `[OdooDepends]` attribute |
+| **Inverse methods** | `inverse=` parameter | `[OdooInverse]` attribute |
+| **Dirty tracking** | `env.cache._dirty` | `DirtyTracker` class |
+| **Flush pattern** | `env.flush()` | `env.Flush()` method |
+| **Type safety** | ❌ Dynamic | ✅ Strong typing |
+| **Performance** | Interpreted | ✅ Compiled + optimized |
+
+---
+
+## Part 15: Available Attributes
+
+All attributes are defined in [`ComputedFieldAttributes.cs`](../src/Odoo.Core/Attributes/ComputedFieldAttributes.cs):
+
+| Attribute | Purpose | Odoo Equivalent |
+|-----------|---------|-----------------|
+| `[OdooCompute("method")]` | Mark field as computed | `compute='method'` |
+| `[OdooDepends("field1", "field2")]` | Declare compute dependencies | `@api.depends(...)` |
+| `[OdooInverse("method")]` | Method to update source fields | `inverse='method'` |
+| `[OdooDefault("method")]` | Default value method | `default=lambda self: ...` |
+| `[OdooRelated("path.to.field")]` | Related field shortcut | `related='field.path'` |
+| `[OdooRequired]` | Field is required | `required=True` |
+| `[OdooTracking]` | Track field changes | `tracking=True` |
+| `[OdooConstrains("field1", "field2")]` | Validation constraint | `@api.constrains(...)` |
+| `[OdooOnchange("field1", "field2")]` | Onchange handler | `@api.onchange(...)` |
+| `[OdooOverride("model", "method")]` | Override existing pipeline | Inheritance |
+
+---
+
+## Part 16: Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        User Code / Application                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  partner.Name = "Test"                env.Create(new PartnerValues{...})│
+└────────────────┬────────────────────────────────────┬───────────────────┘
+                 │                                    │
+                 ▼                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Generated Wrapper Classes                            │
+│  ┌─────────────────────────────┐    ┌─────────────────────────────┐    │
+│  │ Partner.Name setter         │    │ env.Create() extension      │    │
+│  │ → Pipelines.Write(vals)     │    │ → Pipelines.Create(vals)    │    │
+│  └─────────────┬───────────────┘    └─────────────┬───────────────┘    │
+└────────────────┼────────────────────────────────────┼───────────────────┘
+                 │                                    │
+                 ▼                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      Pipeline Registry                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  "res.partner" + "write" → [Override1, Override2, Write_Base]   │   │
+│  │  "res.partner" + "create" → [Override1, Create_Base]            │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+└────────────────┬────────────────────────────────────┬───────────────────┘
+                 │                                    │
+                 ▼                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     Module Overrides (if any)                           │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  Sale.Write_SaleValidation(handle, vals, super)                 │   │
+│  │  Account.Create_AccountDefaults(env, vals, super)               │   │
+│  └────────────────────────────┬────────────────────────────────────┘   │
+└───────────────────────────────┼─────────────────────────────────────────┘
+                                │ calls super()
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      Base Implementation                                │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  Write_Base: cache.SetValue() + cache.MarkDirty()               │   │
+│  │  Create_Base: IdGen.NextId() + new Record() + Write_Base()      │   │
+│  └────────────────────────────┬────────────────────────────────────┘   │
+└───────────────────────────────┼─────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      Columnar Cache                                     │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  Model → Field → [id1: value1, id2: value2, ...]                │   │
+│  │  Dirty tracking: (Model, Id) → Set<FieldToken>                  │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │ env.Flush()
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        Database                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  UPDATE res_partner SET name = ?, is_company = ? WHERE id = ?   │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Conclusion
+
+This architecture successfully aligns our C# ORM with Odoo's extensibility patterns while maintaining our key advantages:
+
+1. **Type Safety**: Strongly-typed Values structs, interfaces, and generics throughout
+2. **Performance**: Direct cache reads, compiled pipelines, columnar data storage
+3. **Odoo Compatibility**: Same override patterns (`write()`, `create()`) as Odoo
+4. **Module Extensibility**: Easy to add business logic via `[OdooLogic]` attributes
+5. **Python Integration**: Dictionary-based API for dynamic access and Python bridge

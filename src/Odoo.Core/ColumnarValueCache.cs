@@ -151,6 +151,28 @@ namespace Odoo.Core
             _dirtyFields.Remove(key);
         }
 
+        public IEnumerable<int> GetDirtyRecords(ModelHandle model)
+        {
+            return _dirtyFields.Keys
+                .Where(k => k.ModelToken == model.Token)
+                .Select(k => k.RecordId)
+                .Distinct();
+        }
+
+        public IEnumerable<int> GetDirtyModels()
+        {
+            return _dirtyFields.Keys
+                .Select(k => k.ModelToken)
+                .Distinct();
+        }
+
+        public bool HasDirtyRecords => _dirtyFields.Count > 0;
+
+        public void ClearAllDirty()
+        {
+            _dirtyFields.Clear();
+        }
+
         // --- Cache Management ---
 
         public void Clear()

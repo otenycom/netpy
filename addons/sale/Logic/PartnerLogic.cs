@@ -1,57 +1,75 @@
 using System;
+using System.Collections.Generic;
 using Odoo.Core;
 using Odoo.Core.Pipeline;
 using Odoo.Base.Models;
 using Odoo.Sale.Models;
-// The namespace for generated super delegates will be available after build
-// using Odoo.Generated.ResPartner.Super; 
 
 namespace Odoo.Sale.Logic
 {
+    /// <summary>
+    /// Sale module extensions for res.partner.
+    /// Demonstrates the Odoo-aligned override pattern for Write and Create pipelines.
+    /// </summary>
     public static class PartnerLogic
     {
-        // Note: The 'super' delegate type will be generated. 
-        // For this example to compile before generation, we might need a temporary definition 
-        // or rely on the generator running first.
-        // Assuming the generator creates: public delegate void ActionVerify(RecordSet<IPartnerBase> self);
-        
+        /// <summary>
+        /// Override for action_verify - adds credit limit checking.
+        /// The 'super' parameter allows calling the next method in the pipeline chain.
+        /// </summary>
         [OdooLogic("res.partner", "action_verify")]
         public static void ActionVerify(
             RecordSet<IPartnerBase> self,
-            Action<RecordSet<IPartnerBase>> super) // Using generic Action for now to ensure compilation
+            Action<RecordSet<IPartnerBase>> super)
         {
-            Console.WriteLine("[Sale] Checking credit limit...");
+            Console.WriteLine("[Sale] PRE: Checking credit limit...");
             
-            // In a real scenario, we would cast 'self' to a type that includes Sale fields
-            // or use the environment to read the specific fields.
-            // Since we don't have the merged interface yet, we'll simulate the check.
-            
-            // Call super()
-            super(self);
-
-            Console.WriteLine("[Sale] Verification complete.");
-        }
-
-        [OdooLogic("res.partner", "create")]
-        public static RecordSet<IPartnerBase> Create(
-            RecordSet<IPartnerBase> self, 
-            System.Collections.Generic.Dictionary<string, object> values,
-            Func<RecordSet<IPartnerBase>, System.Collections.Generic.Dictionary<string, object>, RecordSet<IPartnerBase>> super)
-        {
-            // Pre-processing
-            values["create_date"] = DateTime.UtcNow;
-            Console.WriteLine("[Sale] Added create_date to values");
-            
-            // Call super and get result
-            var created = super(self, values);
-            
-            // Post-processing
-            foreach (var partner in created)
+            // PRE-SUPER: Validate before base logic runs
+            foreach (var partner in self)
             {
-                Console.WriteLine($"[Sale] Post-create hook for partner {partner.Id}");
+                // In a real scenario, access sale-specific fields
+                Console.WriteLine($"[Sale] Checking partner {partner.Id}: {partner.Name}");
             }
             
-            return created;
+            // Call next in pipeline (eventually reaches the base implementation)
+            super(self);
+
+            Console.WriteLine("[Sale] POST: Verification complete.");
+        }
+
+        /// <summary>
+        /// Override for write - adds audit logging and sale-specific validation.
+        /// This demonstrates the Odoo-aligned Write override pattern.
+        /// Signature: (RecordHandle, Dictionary, super) where super has same signature without 'super' param.
+        /// </summary>
+        [OdooLogic("res.partner", "write")]
+        public static void Write_SaleOverride(
+            RecordHandle handle,
+            Dictionary<string, object?> vals,
+            Action<RecordHandle, Dictionary<string, object?>> super)
+        {
+            Console.WriteLine($"[Sale] PRE-WRITE: Modifying partner {handle.Id}");
+            
+            // PRE-WRITE: Add audit information
+            vals["write_date"] = DateTime.UtcNow;
+            Console.WriteLine($"[Sale] Added write_date to values");
+            
+            // PRE-WRITE: Validate sale-specific business rules
+            if (vals.ContainsKey("credit_limit"))
+            {
+                var creditLimit = Convert.ToDecimal(vals["credit_limit"]);
+                if (creditLimit < 0)
+                {
+                    throw new InvalidOperationException("Credit limit cannot be negative!");
+                }
+                Console.WriteLine($"[Sale] Validated credit_limit: {creditLimit}");
+            }
+            
+            // Call next in pipeline (Write_Base)
+            super(handle, vals);
+            
+            // POST-WRITE: Side effects after base write completes
+            Console.WriteLine($"[Sale] POST-WRITE: Partner {handle.Id} updated successfully");
         }
     }
 }

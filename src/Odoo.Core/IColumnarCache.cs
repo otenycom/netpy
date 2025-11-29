@@ -105,6 +105,32 @@ namespace Odoo.Core
         /// <param name="id">Record ID</param>
         void ClearDirty(ModelHandle model, int id);
 
+        /// <summary>
+        /// Get all dirty records for a specific model.
+        /// Used by Flush() to determine what needs to be written to the database.
+        /// </summary>
+        /// <param name="model">Model handle</param>
+        /// <returns>Collection of record IDs that have dirty fields</returns>
+        IEnumerable<int> GetDirtyRecords(ModelHandle model);
+
+        /// <summary>
+        /// Get all models that have dirty records.
+        /// Used by Flush() to determine which models need flushing.
+        /// </summary>
+        /// <returns>Collection of model tokens with dirty records</returns>
+        IEnumerable<int> GetDirtyModels();
+
+        /// <summary>
+        /// Check if there are any dirty records in the cache.
+        /// </summary>
+        bool HasDirtyRecords { get; }
+
+        /// <summary>
+        /// Clear all dirty tracking without flushing.
+        /// Use with caution - this discards uncommitted changes.
+        /// </summary>
+        void ClearAllDirty();
+
         // --- Bulk Operations ---
 
         /// <summary>

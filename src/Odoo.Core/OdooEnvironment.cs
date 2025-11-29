@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Odoo.Core.Modules;
 using Odoo.Core.Pipeline;
 
@@ -30,6 +31,18 @@ namespace Odoo.Core
         public IColumnarCache Columns { get; }
         public IPipelineBuilder Methods => _pipelineRegistry;
         public IdGenerator IdGenerator { get; }
+        
+        /// <summary>
+        /// Tracks dirty fields across all models for this environment.
+        /// Used by Flush() to determine what needs to be written.
+        /// </summary>
+        public DirtyTracker DirtyTracker { get; }
+        
+        /// <summary>
+        /// Tracks computed fields that need recomputation.
+        /// Used for the @api.depends pattern.
+        /// </summary>
+        public ComputeTracker ComputeTracker { get; }
 
         /// <summary>
         /// Fast access to compiled pipeline delegates.
@@ -39,13 +52,15 @@ namespace Odoo.Core
             return _pipelineRegistry.GetPipeline<TDelegate>(model, method);
         }
 
-        public OdooEnvironment(int userId, IColumnarCache? cache = null, ModelRegistry? modelRegistry = null, PipelineRegistry? pipelineRegistry = null)
+        public OdooEnvironment(int userId, IColumnarCache? cache = null, ModelRegistry? modelRegistry = null, PipelineRegistry? pipelineRegistry = null, DirtyTracker? dirtyTracker = null, ComputeTracker? computeTracker = null)
         {
             UserId = userId;
             Columns = cache ?? new ColumnarValueCache();
             _modelRegistry = modelRegistry;
             _pipelineRegistry = pipelineRegistry ?? new PipelineRegistry();
             IdGenerator = new IdGenerator();
+            DirtyTracker = dirtyTracker ?? new DirtyTracker();
+            ComputeTracker = computeTracker ?? new ComputeTracker();
         }
         
         /// <summary>
@@ -265,7 +280,7 @@ namespace Odoo.Core
 
         /// <summary>
         /// Create a new environment with a different user.
-        /// Shares the same caches.
+        /// Shares the same caches, dirty tracker, and compute tracker.
         /// <para>
         /// <b>WARNING:</b> The returned environment shares the same non-thread-safe cache.
         /// Do not use the new environment concurrently with the original one.
@@ -273,7 +288,7 @@ namespace Odoo.Core
         /// </summary>
         public OdooEnvironment WithUser(int userId)
         {
-            return new OdooEnvironment(userId, Columns, _modelRegistry, _pipelineRegistry);
+            return new OdooEnvironment(userId, Columns, _modelRegistry, _pipelineRegistry, DirtyTracker, ComputeTracker);
         }
 
         /// <summary>
@@ -282,6 +297,145 @@ namespace Odoo.Core
         public OdooEnvironment WithNewCache()
         {
             return new OdooEnvironment(UserId, new ColumnarValueCache(), _modelRegistry, _pipelineRegistry);
+        }
+        
+        // --- Flush and Recompute Operations ---
+        
+        /// <summary>
+        /// Flush all pending writes to the database.
+        /// This method:
+        /// 1. Recomputes all pending computed fields
+        /// 2. Groups dirty records by model
+        /// 3. Calls the write pipeline for each model with dirty records
+        /// 4. Clears dirty tracking
+        /// <para>
+        /// Mirrors Odoo's Environment.flush_all() behavior.
+        /// </para>
+        /// </summary>
+        public void Flush()
+        {
+            // Step 1: Recompute all pending computed fields first
+            RecomputePending();
+            
+            // Step 2: Get all dirty models
+            var dirtyModels = DirtyTracker.GetDirtyModels();
+            
+            foreach (var modelToken in dirtyModels)
+            {
+                FlushModel(new ModelHandle(modelToken));
+            }
+            
+            // Step 3: Clear dirty tracking
+            DirtyTracker.ClearAll();
+        }
+        
+        /// <summary>
+        /// Flush a specific model's dirty records to the database.
+        /// </summary>
+        public void FlushModel(ModelHandle model)
+        {
+            if (_modelRegistry == null)
+                return;
+                
+            var schema = _modelRegistry.GetAllModels()
+                .FirstOrDefault(s => s.Token.Token == model.Token);
+                
+            if (schema == null)
+                return;
+            
+            // Get all dirty records for this model
+            var dirtyRecordIds = DirtyTracker.GetDirtyRecordIds(model).ToArray();
+            
+            if (dirtyRecordIds.Length == 0)
+                return;
+            
+            // Build values dictionary for each record
+            // In the future, this will be optimized to batch by field values
+            foreach (var recordId in dirtyRecordIds)
+            {
+                var dirtyFields = DirtyTracker.GetDirtyFields(model, recordId);
+                var values = new Dictionary<string, object?>();
+                
+                foreach (var fieldToken in dirtyFields)
+                {
+                    // Find field name from token
+                    var fieldSchema = schema.Fields.Values
+                        .FirstOrDefault(f => f.Token.Token == fieldToken.Token);
+                        
+                    if (fieldSchema != null && !fieldSchema.IsComputed)
+                    {
+                        // Get current value from cache (using object boxing for now)
+                        // In the future, this will use typed access
+                        // TODO: Implement typed value extraction
+                    }
+                }
+                
+                // TODO: Call write pipeline when implemented
+                // var writePipeline = GetPipeline<WriteDelegate>(schema.ModelName, "write");
+                // writePipeline(new[] { recordId }, values);
+            }
+        }
+        
+        /// <summary>
+        /// Recompute all pending computed fields.
+        /// Called automatically by Flush() before writing to database.
+        /// </summary>
+        public void RecomputePending()
+        {
+            if (_modelRegistry == null)
+                return;
+                
+            while (ComputeTracker.HasPendingRecompute)
+            {
+                var pending = ComputeTracker.GetAllPendingRecompute().ToList();
+                
+                foreach (var (modelToken, recordId, fieldToken) in pending)
+                {
+                    var schema = _modelRegistry.GetAllModels()
+                        .FirstOrDefault(s => s.Token.Token == modelToken);
+                        
+                    if (schema == null)
+                        continue;
+                    
+                    var fieldSchema = schema.Fields.Values
+                        .FirstOrDefault(f => f.Token.Token == fieldToken);
+                        
+                    if (fieldSchema == null || !fieldSchema.IsComputed)
+                        continue;
+                    
+                    // TODO: Call the compute method when pipelines are implemented
+                    // var computePipeline = GetPipeline<ComputeDelegate>(schema.ModelName, fieldSchema.ComputeMethodName);
+                    // computePipeline(new[] { recordId });
+                    
+                    // Clear the recompute flag
+                    ComputeTracker.ClearRecompute(new ModelHandle(modelToken), recordId, new FieldHandle(fieldToken));
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Mark a field as modified and trigger recomputation of dependent fields.
+        /// Called by property setters for stored fields.
+        /// </summary>
+        /// <param name="model">The model handle</param>
+        /// <param name="recordId">The record ID</param>
+        /// <param name="field">The field that was modified</param>
+        public void Modified(ModelHandle model, int recordId, FieldHandle field)
+        {
+            DirtyTracker.MarkDirty(model, recordId, field);
+            ComputeTracker.Modified(model, recordId, field);
+        }
+        
+        /// <summary>
+        /// Mark multiple fields as modified on a record.
+        /// </summary>
+        public void Modified(ModelHandle model, int recordId, IEnumerable<FieldHandle> fields)
+        {
+            foreach (var field in fields)
+            {
+                DirtyTracker.MarkDirty(model, recordId, field);
+            }
+            ComputeTracker.Modified(model, recordId, fields);
         }
     }
 }

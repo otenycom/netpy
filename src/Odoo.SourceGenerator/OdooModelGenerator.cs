@@ -319,6 +319,11 @@ namespace Odoo.SourceGenerator
         /// <summary>
         /// Generate a UNIFIED WRAPPER CLASS (not struct) implementing ALL visible interfaces.
         /// This is the core of the unified wrapper architecture.
+        ///
+        /// ODOO-ALIGNED PATTERN:
+        /// - Getters: Direct cache read (no pipeline) for performance
+        /// - Setters: Delegate to Write() pipeline for extensibility
+        /// - Computed fields: Call compute method for computed properties
         /// </summary>
         private string GenerateWrapperStruct(UnifiedModelInfo model, string safeAssemblyName)
         {
@@ -333,6 +338,7 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("#nullable enable");
             sb.AppendLine();
             sb.AppendLine("using System;");
+            sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("using System.Runtime.CompilerServices;");
             sb.AppendLine("using Odoo.Core;");
             sb.AppendLine($"using {schemaNamespace};");
@@ -353,7 +359,10 @@ namespace Odoo.SourceGenerator
             sb.AppendLine($"    /// <summary>");
             sb.AppendLine($"    /// Unified wrapper CLASS for {model.ModelName}");
             sb.AppendLine($"    /// Implements: {interfaceList}");
-            sb.AppendLine($"    /// Supports identity map and reference equality.");
+            sb.AppendLine($"    /// ");
+            sb.AppendLine($"    /// ODOO-ALIGNED PATTERN:");
+            sb.AppendLine($"    /// - Getters: Direct cache read (no pipeline overhead)");
+            sb.AppendLine($"    /// - Setters: Delegate to Write() pipeline for extensibility");
             sb.AppendLine($"    /// </summary>");
             sb.AppendLine($"    public sealed class {className} : {interfaceList}, IRecordWrapper");
             sb.AppendLine("    {");
@@ -378,19 +387,54 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("        public IEnvironment Env => _handle.Env;");
             sb.AppendLine();
 
-            // Generate properties that delegate to pipelines
+            // Generate properties - ODOO PATTERN: direct cache reads, write() delegation
             foreach (var prop in model.Properties)
             {
                 var propertyType = prop.Type.ToDisplayString();
-                var pipelineClass = $"{className}Pipelines";
+                var fieldName = GetOdooFieldName(prop);
+                
+                // Check if property is computed
+                var isComputed = prop.GetAttributes().Any(a => a.AttributeClass?.Name == "OdooComputeAttribute");
                 
                 sb.AppendLine($"        public {propertyType} {prop.Name}");
                 sb.AppendLine("        {");
-                sb.AppendLine($"            get => {pipelineClass}.Get_{prop.Name}(_handle);");
+                
+                // GETTER: Direct cache read (like Odoo Field.__get__)
+                if (isComputed)
+                {
+                    // Computed field - trigger computation if needed
+                    sb.AppendLine("            get");
+                    sb.AppendLine("            {");
+                    sb.AppendLine($"                // Computed field - check if recomputation needed");
+                    sb.AppendLine($"                if (Env is OdooEnvironment odooEnv && ");
+                    sb.AppendLine($"                    odooEnv.ComputeTracker.NeedsRecompute(ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name}))");
+                    sb.AppendLine("                {");
+                    sb.AppendLine($"                    // Trigger recomputation");
+                    sb.AppendLine($"                    {className}Pipelines.Compute_{prop.Name}(_handle);");
+                    sb.AppendLine("                }");
+                    sb.AppendLine($"                return Env.Columns.GetValue<{propertyType}>(");
+                    sb.AppendLine($"                    ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name});");
+                    sb.AppendLine("            }");
+                }
+                else
+                {
+                    // Regular field - direct cache access (no pipeline overhead)
+                    sb.AppendLine($"            [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+                    sb.AppendLine($"            get => Env.Columns.GetValue<{propertyType}>(");
+                    sb.AppendLine($"                ModelSchema.{className}.ModelToken, Id, ModelSchema.{className}.{prop.Name});");
+                }
+                
+                // SETTER: Delegate to Write() pipeline (like Odoo Field.__set__)
                 if (!prop.IsReadOnly)
                 {
-                    sb.AppendLine($"            set => {pipelineClass}.Set_{prop.Name}(_handle, value);");
+                    sb.AppendLine("            set");
+                    sb.AppendLine("            {");
+                    sb.AppendLine($"                // Delegate to Write() pipeline - Odoo pattern");
+                    sb.AppendLine($"                var vals = new Dictionary<string, object?> {{ {{ \"{fieldName}\", value }} }};");
+                    sb.AppendLine($"                {className}Pipelines.Write(_handle, vals);");
+                    sb.AppendLine("            }");
                 }
+                
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
@@ -411,6 +455,16 @@ namespace Odoo.SourceGenerator
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Generate UNIFIED Write/Create pipelines - ODOO ALIGNED PATTERN.
+        ///
+        /// Instead of per-property getter/setter pipelines, we generate:
+        /// - Write(handle, vals) - unified write pipeline (like Odoo's BaseModel.write)
+        /// - Write_Base(handle, vals) - base implementation that writes to cache
+        /// - Create(env, vals) - create pipeline (like Odoo's BaseModel.create)
+        /// - Create_Base(env, vals) - base implementation
+        /// - Compute_X(handle) - compute method for computed fields
+        /// </summary>
         private string GeneratePropertyPipelines(UnifiedModelInfo model, string safeAssemblyName)
         {
             var sb = new StringBuilder();
@@ -422,30 +476,199 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("#nullable enable");
             sb.AppendLine();
             sb.AppendLine("using System;");
+            sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("using Odoo.Core;");
             sb.AppendLine($"using {schemaNamespace};");
             sb.AppendLine();
             sb.AppendLine($"namespace {schemaNamespace}");
             sb.AppendLine("{");
+            sb.AppendLine($"    /// <summary>");
+            sb.AppendLine($"    /// ODOO-ALIGNED pipeline methods for {model.ModelName}.");
+            sb.AppendLine($"    /// ");
+            sb.AppendLine($"    /// Pattern: Property setters delegate to Write() which is the single extension point.");
+            sb.AppendLine($"    /// This mirrors Odoo's design where Field.__set__ calls write() for extensibility.");
+            sb.AppendLine($"    /// </summary>");
             sb.AppendLine($"    public static class {pipelineClass}");
             sb.AppendLine("    {");
 
+            // ========================================
+            // WRITE PIPELINE - The single extension point for setters
+            // ========================================
+            sb.AppendLine("        #region Write Pipeline");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Unified write method - THE SINGLE EXTENSION POINT for field modifications.");
+            sb.AppendLine("        /// Modules override this to add business logic (validation, onchange, etc.).");
+            sb.AppendLine("        /// Mirrors Odoo's BaseModel.write() method.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        public static void Write(RecordHandle handle, Dictionary<string, object?> vals)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var pipeline = handle.Env.GetPipeline<Action<RecordHandle, Dictionary<string, object?>>>(");
+            sb.AppendLine($"                \"{model.ModelName}\", \"write\");");
+            sb.AppendLine("            pipeline(handle, vals);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Base write implementation - writes values to cache and marks dirty.");
+            sb.AppendLine("        /// This is called at the end of the write pipeline chain.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        public static void Write_Base(RecordHandle handle, Dictionary<string, object?> vals)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var modelToken = ModelSchema.{className}.ModelToken;");
+            sb.AppendLine("            var cache = handle.Env.Columns;");
+            sb.AppendLine();
+            sb.AppendLine("            foreach (var (fieldName, value) in vals)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                if (value == null) continue;");
+            sb.AppendLine();
+            sb.AppendLine("                // Switch on field name to get proper typing");
+            sb.AppendLine("                switch (fieldName)");
+            sb.AppendLine("                {");
+            
+            foreach (var prop in model.Properties)
+            {
+                if (prop.IsReadOnly) continue;
+                
+                var fieldName = GetOdooFieldName(prop);
+                var propertyType = prop.Type.ToDisplayString();
+                
+                sb.AppendLine($"                    case \"{fieldName}\":");
+                sb.AppendLine($"                        cache.SetValue(modelToken, handle.Id, ModelSchema.{className}.{prop.Name}, ({propertyType})value);");
+                sb.AppendLine($"                        cache.MarkDirty(modelToken, handle.Id, ModelSchema.{className}.{prop.Name});");
+                
+                // Check if this field has dependents (triggers computed fields)
+                sb.AppendLine($"                        // Trigger recomputation of dependent computed fields");
+                sb.AppendLine($"                        if (handle.Env is OdooEnvironment odooEnv_{fieldName})");
+                sb.AppendLine($"                        {{");
+                sb.AppendLine($"                            odooEnv_{fieldName}.Modified(modelToken, handle.Id, ModelSchema.{className}.{prop.Name});");
+                sb.AppendLine($"                        }}");
+                sb.AppendLine("                        break;");
+            }
+            
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        #endregion");
+            sb.AppendLine();
+
+            // ========================================
+            // CREATE PIPELINE - Extension point for record creation
+            // ========================================
+            sb.AppendLine("        #region Create Pipeline");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Unified create method - extension point for record creation.");
+            sb.AppendLine("        /// Modules override this to add creation logic (defaults, validation, etc.).");
+            sb.AppendLine("        /// Mirrors Odoo's BaseModel.create() method.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine($"        public static {className} Create(IEnvironment env, Dictionary<string, object?> vals)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var pipeline = env.GetPipeline<Func<IEnvironment, Dictionary<string, object?>, {className}>>(");
+            sb.AppendLine($"                \"{model.ModelName}\", \"create\");");
+            sb.AppendLine("            return pipeline(env, vals);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// Base create implementation - allocates ID, creates record, writes values.");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine($"        public static {className} Create_Base(IEnvironment env, Dictionary<string, object?> vals)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var newId = env.IdGenerator.NextId(\"{model.ModelName}\");");
+            sb.AppendLine($"            var modelToken = ModelSchema.{className}.ModelToken;");
+            sb.AppendLine($"            var handle = new RecordHandle(env, newId, modelToken);");
+            sb.AppendLine($"            var record = new {className}(handle);");
+            sb.AppendLine();
+            sb.AppendLine("            // Register in identity map");
+            sb.AppendLine("            if (env is OdooEnvironment odooEnv)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                odooEnv.RegisterInIdentityMap(modelToken.Token, newId, record);");
+            sb.AppendLine("            }");
+            sb.AppendLine();
+            sb.AppendLine("            // Write initial values using the base write (no pipeline for creation)");
+            sb.AppendLine("            Write_Base(handle, vals);");
+            sb.AppendLine();
+            sb.AppendLine("            return record;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        #endregion");
+            sb.AppendLine();
+
+            // ========================================
+            // COMPUTE METHODS - For computed fields
+            // ========================================
+            var computedProps = model.Properties.Where(p =>
+                p.GetAttributes().Any(a => a.AttributeClass?.Name == "OdooComputeAttribute")).ToList();
+            
+            if (computedProps.Any())
+            {
+                sb.AppendLine("        #region Computed Field Methods");
+                sb.AppendLine();
+                
+                foreach (var prop in computedProps)
+                {
+                    var propertyType = prop.Type.ToDisplayString();
+                    var computeAttr = prop.GetAttributes()
+                        .FirstOrDefault(a => a.AttributeClass?.Name == "OdooComputeAttribute");
+                    
+                    var computeMethodName = computeAttr?.ConstructorArguments.Length > 0
+                        ? computeAttr.ConstructorArguments[0].Value?.ToString() ?? $"_compute_{prop.Name.ToLower()}"
+                        : $"_compute_{prop.Name.ToLower()}";
+                    
+                    sb.AppendLine($"        /// <summary>");
+                    sb.AppendLine($"        /// Trigger computation for {prop.Name} field.");
+                    sb.AppendLine($"        /// Override this to provide compute logic.");
+                    sb.AppendLine($"        /// </summary>");
+                    sb.AppendLine($"        public static void Compute_{prop.Name}(RecordHandle handle)");
+                    sb.AppendLine("        {");
+                    sb.AppendLine($"            // Default implementation - compute method should be registered via [OdooLogic]");
+                    sb.AppendLine($"            var pipeline = handle.Env.GetPipeline<Action<RecordHandle>>(");
+                    sb.AppendLine($"                \"{model.ModelName}\", \"{computeMethodName}\");");
+                    sb.AppendLine("            pipeline(handle);");
+                    sb.AppendLine();
+                    sb.AppendLine("            // Clear the needs-recompute flag");
+                    sb.AppendLine("            if (handle.Env is OdooEnvironment odooEnv)");
+                    sb.AppendLine("            {");
+                    sb.AppendLine($"                odooEnv.ComputeTracker.ClearRecompute(");
+                    sb.AppendLine($"                    ModelSchema.{className}.ModelToken, handle.Id, ModelSchema.{className}.{prop.Name});");
+                    sb.AppendLine("            }");
+                    sb.AppendLine("        }");
+                    sb.AppendLine();
+                    
+                    // Base compute that does nothing (placeholder for modules to override)
+                    sb.AppendLine($"        /// <summary>");
+                    sb.AppendLine($"        /// Base compute for {prop.Name} - does nothing by default.");
+                    sb.AppendLine($"        /// Modules provide the actual compute logic.");
+                    sb.AppendLine($"        /// </summary>");
+                    sb.AppendLine($"        public static void Compute_{prop.Name}_Base(RecordHandle handle)");
+                    sb.AppendLine("        {");
+                    sb.AppendLine("            // No-op base - actual computation provided by module");
+                    sb.AppendLine("        }");
+                    sb.AppendLine();
+                }
+                
+                sb.AppendLine("        #endregion");
+                sb.AppendLine();
+            }
+
+            // ========================================
+            // FIELD ACCESSORS - Direct cache access for reading (kept for backward compatibility)
+            // ========================================
+            sb.AppendLine("        #region Field Accessors (Direct Cache)");
+            sb.AppendLine();
+            
             foreach (var prop in model.Properties)
             {
                 var propertyType = prop.Type.ToDisplayString();
                 var fieldName = GetOdooFieldName(prop);
 
-                // GETTER
+                // Direct cache getter (for use in compute methods, etc.)
+                sb.AppendLine($"        /// <summary>");
+                sb.AppendLine($"        /// Direct cache read for {prop.Name}. Use for compute methods.");
+                sb.AppendLine($"        /// </summary>");
                 sb.AppendLine($"        public static {propertyType} Get_{prop.Name}(RecordHandle handle)");
-                sb.AppendLine("        {");
-                sb.AppendLine($"            var pipeline = handle.Env.GetPipeline<Func<RecordHandle, {propertyType}>>(");
-                sb.AppendLine($"                \"{model.ModelName}\", \"get_{fieldName}\");");
-                sb.AppendLine("            return pipeline(handle);");
-                sb.AppendLine("        }");
-                sb.AppendLine();
-
-                // GETTER BASE
-                sb.AppendLine($"        public static {propertyType} Get_{prop.Name}_Base(RecordHandle handle)");
                 sb.AppendLine("        {");
                 sb.AppendLine($"            return handle.Env.Columns.GetValue<{propertyType}>(");
                 sb.AppendLine($"                ModelSchema.{className}.ModelToken,");
@@ -454,33 +677,25 @@ namespace Odoo.SourceGenerator
                 sb.AppendLine("        }");
                 sb.AppendLine();
 
+                // Direct cache setter (for use in compute methods to set values without triggering pipeline)
                 if (!prop.IsReadOnly)
                 {
-                    // SETTER
-                    sb.AppendLine($"        public static void Set_{prop.Name}(RecordHandle handle, {propertyType} value)");
-                    sb.AppendLine("        {");
-                    sb.AppendLine($"            var pipeline = handle.Env.GetPipeline<Action<RecordHandle, {propertyType}>>(");
-                    sb.AppendLine($"                \"{model.ModelName}\", \"set_{fieldName}\");");
-                    sb.AppendLine("            pipeline(handle, value);");
-                    sb.AppendLine("        }");
-                    sb.AppendLine();
-
-                    // SETTER BASE
-                    sb.AppendLine($"        public static void Set_{prop.Name}_Base(RecordHandle handle, {propertyType} value)");
+                    sb.AppendLine($"        /// <summary>");
+                    sb.AppendLine($"        /// Direct cache write for {prop.Name}. Use in compute methods to avoid triggering write pipeline.");
+                    sb.AppendLine($"        /// </summary>");
+                    sb.AppendLine($"        public static void Set_{prop.Name}_Direct(RecordHandle handle, {propertyType} value)");
                     sb.AppendLine("        {");
                     sb.AppendLine($"            handle.Env.Columns.SetValue(");
                     sb.AppendLine($"                ModelSchema.{className}.ModelToken,");
                     sb.AppendLine($"                handle.Id,");
                     sb.AppendLine($"                ModelSchema.{className}.{prop.Name},");
                     sb.AppendLine($"                value);");
-                    sb.AppendLine($"            handle.Env.Columns.MarkDirty(");
-                    sb.AppendLine($"                ModelSchema.{className}.ModelToken,");
-                    sb.AppendLine($"                handle.Id,");
-                    sb.AppendLine($"                ModelSchema.{className}.{prop.Name});");
                     sb.AppendLine("        }");
                     sb.AppendLine();
                 }
             }
+            
+            sb.AppendLine("        #endregion");
 
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -537,6 +752,7 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("#nullable enable");
             sb.AppendLine();
             sb.AppendLine("using System;");
+            sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("using Odoo.Core;");
             
             // Add using statements for all interface namespaces
@@ -572,27 +788,20 @@ namespace Odoo.SourceGenerator
             {
                 var className = model.ClassName;
                 var valuesName = $"{className}Values";
+                var pipelineClass = $"{className}Pipelines";
                 var primaryInterface = model.Interfaces.FirstOrDefault();
 
-                // Only generate Create method - record access is via env.GetRecord<T>()
+                // Type-safe Create using Values struct - converts to dictionary and calls pipeline
                 sb.AppendLine($"        /// <summary>");
-                sb.AppendLine($"        /// Create a new {model.ModelName} record.");
-                sb.AppendLine($"        /// Registers in identity map for reference equality.");
+                sb.AppendLine($"        /// Create a new {model.ModelName} record using type-safe Values struct.");
+                sb.AppendLine($"        /// Delegates to unified Create pipeline for extensibility.");
                 sb.AppendLine($"        /// </summary>");
                 sb.AppendLine($"        public static {primaryInterface?.ToDisplayString() ?? "IOdooRecord"} Create(");
                 sb.AppendLine($"            this IEnvironment env,");
                 sb.AppendLine($"            {valuesName} values)");
                 sb.AppendLine("        {");
-                sb.AppendLine($"            var newId = env.IdGenerator.NextId(\"{model.ModelName}\");");
-                sb.AppendLine($"            var modelToken = ModelSchema.{className}.ModelToken;");
-                sb.AppendLine($"            var handle = new RecordHandle(env, newId, modelToken);");
-                sb.AppendLine($"            var record = new {className}(handle);");
-                sb.AppendLine();
-                sb.AppendLine($"            // Register in identity map");
-                sb.AppendLine($"            if (env is OdooEnvironment odooEnv)");
-                sb.AppendLine($"            {{");
-                sb.AppendLine($"                odooEnv.RegisterInIdentityMap(modelToken.Token, newId, record);");
-                sb.AppendLine($"            }}");
+                sb.AppendLine($"            // Convert Values struct to dictionary for unified pipeline");
+                sb.AppendLine($"            var vals = new Dictionary<string, object?>();");
                 sb.AppendLine();
 
                 foreach (var prop in model.Properties)
@@ -600,26 +809,40 @@ namespace Odoo.SourceGenerator
                     if (prop.IsReadOnly) continue;
 
                     var propertyType = prop.Type.ToDisplayString();
+                    var fieldName = GetOdooFieldName(prop);
                     var isNullable = propertyType.EndsWith("?");
-                    var pipelineClass = $"{className}Pipelines";
                     
                     sb.AppendLine($"            if (values.{prop.Name} is not null)");
                     sb.AppendLine("            {");
                     
                     if (isNullable || !prop.Type.IsValueType)
                     {
-                        sb.AppendLine($"                {pipelineClass}.Set_{prop.Name}(handle, values.{prop.Name});");
+                        sb.AppendLine($"                vals[\"{fieldName}\"] = values.{prop.Name};");
                     }
                     else
                     {
-                        sb.AppendLine($"                {pipelineClass}.Set_{prop.Name}(handle, values.{prop.Name}.Value);");
+                        sb.AppendLine($"                vals[\"{fieldName}\"] = values.{prop.Name}.Value;");
                     }
                     
                     sb.AppendLine("            }");
                 }
 
                 sb.AppendLine();
-                sb.AppendLine($"            return record;");
+                sb.AppendLine($"            // Use unified Create pipeline (like Odoo's BaseModel.create())");
+                sb.AppendLine($"            return {pipelineClass}.Create(env, vals);");
+                sb.AppendLine("        }");
+                sb.AppendLine();
+                
+                // Also generate a Dictionary-based Create for Python integration
+                sb.AppendLine($"        /// <summary>");
+                sb.AppendLine($"        /// Create a new {model.ModelName} record using dictionary (Python-style).");
+                sb.AppendLine($"        /// Delegates to unified Create pipeline for extensibility.");
+                sb.AppendLine($"        /// </summary>");
+                sb.AppendLine($"        public static {className} Create{className}(");
+                sb.AppendLine($"            this IEnvironment env,");
+                sb.AppendLine($"            Dictionary<string, object?> vals)");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            return {pipelineClass}.Create(env, vals);");
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
@@ -877,6 +1100,8 @@ namespace Odoo.SourceGenerator
             }
             
             sb.AppendLine();
+            sb.AppendLine("#nullable enable");
+            sb.AppendLine();
             sb.AppendLine($"namespace Odoo.Generated.{safeAssemblyName}");
             sb.AppendLine("{");
             sb.AppendLine("    /// <summary>");
@@ -886,31 +1111,42 @@ namespace Odoo.SourceGenerator
             sb.AppendLine("    public class ModuleRegistrar : IModuleRegistrar");
             sb.AppendLine("    {");
             
-            // RegisterPipelines method
+            // RegisterPipelines method - ODOO ALIGNED: Register unified Write/Create pipelines
             sb.AppendLine("        public void RegisterPipelines(IPipelineBuilder builder)");
             sb.AppendLine("        {");
 
-            // Register Property Pipelines (Base)
+            // Register UNIFIED Write/Create Pipelines (ODOO PATTERN)
             foreach (var model in models)
             {
                 var className = model.ClassName;
                 var pipelineClass = $"{className}Pipelines";
 
-                foreach (var prop in model.Properties)
+                sb.AppendLine();
+                sb.AppendLine($"            // {model.ModelName} - UNIFIED Write/Create pipelines (Odoo pattern)");
+                
+                // Register Write pipeline base
+                sb.AppendLine($"            builder.RegisterBase(\"{model.ModelName}\", \"write\", ");
+                sb.AppendLine($"                (Action<RecordHandle, Dictionary<string, object?>>){pipelineClass}.Write_Base);");
+                
+                // Register Create pipeline base
+                sb.AppendLine($"            builder.RegisterBase(\"{model.ModelName}\", \"create\", ");
+                sb.AppendLine($"                (Func<IEnvironment, Dictionary<string, object?>, {className}>){pipelineClass}.Create_Base);");
+                
+                // Register compute pipelines for computed fields
+                var computedProps = model.Properties.Where(p =>
+                    p.GetAttributes().Any(a => a.AttributeClass?.Name == "OdooComputeAttribute")).ToList();
+                
+                foreach (var prop in computedProps)
                 {
-                    var fieldName = GetOdooFieldName(prop);
-                    var propertyType = prop.Type.ToDisplayString();
-
-                    // Register Getter Base
-                    sb.AppendLine($"            builder.RegisterBase(\"{model.ModelName}\", \"get_{fieldName}\", ");
-                    sb.AppendLine($"                (Func<RecordHandle, {propertyType}>){pipelineClass}.Get_{prop.Name}_Base);");
-
-                    if (!prop.IsReadOnly)
-                    {
-                        // Register Setter Base
-                        sb.AppendLine($"            builder.RegisterBase(\"{model.ModelName}\", \"set_{fieldName}\", ");
-                        sb.AppendLine($"                (Action<RecordHandle, {propertyType}>){pipelineClass}.Set_{prop.Name}_Base);");
-                    }
+                    var computeAttr = prop.GetAttributes()
+                        .FirstOrDefault(a => a.AttributeClass?.Name == "OdooComputeAttribute");
+                    
+                    var computeMethodName = computeAttr?.ConstructorArguments.Length > 0
+                        ? computeAttr.ConstructorArguments[0].Value?.ToString() ?? $"_compute_{prop.Name.ToLower()}"
+                        : $"_compute_{prop.Name.ToLower()}";
+                    
+                    sb.AppendLine($"            builder.RegisterBase(\"{model.ModelName}\", \"{computeMethodName}\", ");
+                    sb.AppendLine($"                (Action<RecordHandle>){pipelineClass}.Compute_{prop.Name}_Base);");
                 }
             }
 
@@ -979,56 +1215,64 @@ namespace Odoo.SourceGenerator
         private string GenerateSuperDelegates(List<LogicMethodInfo> methods)
         {
             var sb = new StringBuilder();
-            var processed = new HashSet<string>();
+            // Track fully qualified delegate names to avoid duplicates
+            var generatedDelegates = new HashSet<string>();
 
             foreach (var method in methods)
             {
-                var key = $"{method.ModelName}.{method.MethodName}";
-                if (processed.Contains(key)) continue;
-                processed.Add(key);
-
                 var modelPart = method.ModelName.Replace(".", "");
                 var ns = $"Odoo.Generated.{modelPart}.Super";
                 
-                sb.AppendLine($"namespace {ns}");
-                sb.AppendLine("{");
-                
-                // Generate delegate signature matching the method (minus the super param if it was an override)
-                // Actually, the super delegate signature matches the BASE method signature.
-                // So we need to find the base signature or infer it.
-                // If this is an override, the 'super' param type IS the delegate type we want to generate!
-                
                 // Let's look at the 'super' parameter if it exists
                 var superParam = method.MethodSymbol.Parameters.FirstOrDefault(p => p.Name == "super");
+                
+                string delegateName;
+                string delegateSignature;
+                
                 if (superParam != null)
                 {
-                    // It's an override, use the super param type name (which we are generating)
-                    // But we need to generate the definition.
-                    // The definition should match the signature of the delegate.
-                    // Wait, if we use typed delegates, the user code refers to Odoo.Generated...ActionVerify.
-                    // So we must generate that delegate type.
+                    // It's an override - check if it uses a standard delegate type (Action, Func)
+                    var superTypeName = superParam.Type.Name;
                     
-                    // The signature of the super delegate matches the method signature MINUS the super param.
+                    // Skip generating delegates for standard System types
+                    if (superTypeName == "Action" || superTypeName == "Func")
+                    {
+                        // Standard delegate - don't generate, it's already in System namespace
+                        continue;
+                    }
+                    
+                    // It's a custom delegate type - generate it
                     var parameters = method.MethodSymbol.Parameters
                         .Where(p => p.Name != "super")
                         .Select(p => $"{p.Type.ToDisplayString()} {p.Name}");
                     
                     var returnType = method.MethodSymbol.ReturnType.ToDisplayString();
-                    var delegateName = method.MethodSymbol.Parameters.Last().Type.Name; // e.g. ActionVerify
-
-                    sb.AppendLine($"    public delegate {returnType} {delegateName}({string.Join(", ", parameters)});");
+                    delegateName = superTypeName;
+                    delegateSignature = $"{returnType} {delegateName}({string.Join(", ", parameters)})";
                 }
                 else
                 {
-                    // It's a base method. We should generate a delegate for it so overrides can use it.
-                    // Delegate name convention? Let's use MethodName.
+                    // It's a base method. Generate a delegate for it so overrides can use it.
                     var parameters = method.MethodSymbol.Parameters
                         .Select(p => $"{p.Type.ToDisplayString()} {p.Name}");
                     var returnType = method.MethodSymbol.ReturnType.ToDisplayString();
                     
-                    sb.AppendLine($"    public delegate {returnType} {method.MethodName}({string.Join(", ", parameters)});");
+                    // Use the original method name as delegate name (for consistency with LogicExtensions)
+                    delegateName = method.MethodName;
+                    delegateSignature = $"{returnType} {delegateName}({string.Join(", ", parameters)})";
                 }
-
+                
+                // Create a unique key for this delegate
+                var fullDelegateName = $"{ns}.{delegateName}";
+                if (generatedDelegates.Contains(fullDelegateName))
+                {
+                    continue; // Already generated
+                }
+                generatedDelegates.Add(fullDelegateName);
+                
+                sb.AppendLine($"namespace {ns}");
+                sb.AppendLine("{");
+                sb.AppendLine($"    public delegate {delegateSignature};");
                 sb.AppendLine("}");
                 sb.AppendLine();
             }
@@ -1106,8 +1350,28 @@ namespace Odoo.SourceGenerator
                     // Determine delegate type
                     var modelPart = method.ModelName.Replace(".", "");
                     var superParam = method.MethodSymbol.Parameters.FirstOrDefault(p => p.Name == "super");
-                    var delegateName = superParam != null ? superParam.Type.Name : method.MethodName;
-                    var delegateType = $"Odoo.Generated.{modelPart}.Super.{delegateName}";
+                    
+                    string delegateType;
+                    if (superParam != null)
+                    {
+                        var superTypeName = superParam.Type.Name;
+                        // For standard delegates, use the full type from the parameter
+                        if (superTypeName == "Action" || superTypeName == "Func")
+                        {
+                            // Use the full generic type display string
+                            delegateType = superParam.Type.ToDisplayString();
+                        }
+                        else
+                        {
+                            // Custom delegate - use our generated namespace
+                            delegateType = $"Odoo.Generated.{modelPart}.Super.{superTypeName}";
+                        }
+                    }
+                    else
+                    {
+                        // Base method without super - use our generated delegate
+                        delegateType = $"Odoo.Generated.{modelPart}.Super.{method.MethodName}";
+                    }
 
                     // Get typed pipeline
                     sb.AppendLine($"            var pipeline = self.Env.Methods.GetPipeline<{delegateType}>(\"{method.ModelName}\", \"{method.MethodName}\");");

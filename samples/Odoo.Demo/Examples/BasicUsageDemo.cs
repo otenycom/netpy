@@ -1,8 +1,14 @@
 using System;
+using System.Linq;
+using System.Reflection;
 using Odoo.Core;
+using Odoo.Core.Pipeline;
+using Odoo.Core.Modules;
 using Odoo.Base.Models;
+using Odoo.Sale.Models;
 // Import unified wrappers and schema from the generated code
 using Odoo.Generated.OdooDemo;
+using Schema = Odoo.Generated.OdooDemo.ModelSchema;
 
 namespace Odoo.Examples
 {
@@ -16,8 +22,40 @@ namespace Odoo.Examples
         {
             Console.WriteLine("=== Odoo ORM Basic Usage Demo ===\n");
 
-            // 1. Create an environment with columnar cache
-            var env = new OdooEnvironment(userId: 1);
+            // 1. Create an environment with model registry
+            var registryBuilder = new RegistryBuilder();
+            var pipelineRegistry = new PipelineRegistry();
+            
+            var assemblies = new[]
+            {
+                typeof(IPartnerBase).Assembly,      // Odoo.Base
+                typeof(IPartnerSaleExtension).Assembly, // Odoo.Sale
+                typeof(BasicUsageDemo).Assembly     // Demo project
+            };
+
+            foreach (var assembly in assemblies)
+            {
+                registryBuilder.ScanAssembly(assembly);
+            }
+            
+            var modelRegistry = registryBuilder.Build();
+
+            foreach (var assembly in assemblies)
+            {
+                var registrars = assembly.GetTypes()
+                    .Where(t => typeof(IModuleRegistrar).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
+                
+                foreach (var registrarType in registrars)
+                {
+                    var registrar = (IModuleRegistrar)Activator.CreateInstance(registrarType)!;
+                    registrar.RegisterPipelines(pipelineRegistry);
+                    registrar.RegisterFactories(modelRegistry);
+                }
+            }
+            
+            pipelineRegistry.CompileAll();
+
+            var env = new OdooEnvironment(userId: 1, modelRegistry: modelRegistry, pipelineRegistry: pipelineRegistry);
 
             Console.WriteLine("1. Created environment for user ID: 1\n");
 
@@ -38,8 +76,8 @@ namespace Odoo.Examples
             Console.WriteLine($"   Updated Email: {partner.Email}");
             
             // Show dirty fields
-            var dirtyFields = env.Columns.GetDirtyFieldNames("res.partner", ModelSchema.ResPartner.ModelToken, 10);
-            Console.WriteLine($"   Dirty Fields: {string.Join(", ", dirtyFields)}");
+            var dirtyFields = env.Columns.GetDirtyFields(Schema.ResPartner.ModelToken, 10);
+            Console.WriteLine($"   Dirty Fields: {string.Join(", ", dirtyFields.Select(f => $"Field({f.Token})"))}");
             Console.WriteLine();
 
             // 5. Access multiple records (RecordSet) using new GetRecords<T> API
@@ -90,7 +128,7 @@ namespace Odoo.Examples
                 [11] = "Mitchell Admin",
                 [12] = "Azure Interior"
             };
-            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Name, names);
+            cache.BulkLoad(Schema.ResPartner.ModelToken, Schema.ResPartner.Name, names);
 
             var emails = new Dictionary<int, string?>
             {
@@ -98,7 +136,7 @@ namespace Odoo.Examples
                 [11] = "admin@example.com",
                 [12] = "azure@example.com"
             };
-            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.Email, emails);
+            cache.BulkLoad(Schema.ResPartner.ModelToken, Schema.ResPartner.Email, emails);
 
             var isCompany = new Dictionary<int, bool>
             {
@@ -106,7 +144,7 @@ namespace Odoo.Examples
                 [11] = false,
                 [12] = true
             };
-            cache.BulkLoad(ModelSchema.ResPartner.ModelToken, ModelSchema.ResPartner.IsCompany, isCompany);
+            cache.BulkLoad(Schema.ResPartner.ModelToken, Schema.ResPartner.IsCompany, isCompany);
         }
     }
 }

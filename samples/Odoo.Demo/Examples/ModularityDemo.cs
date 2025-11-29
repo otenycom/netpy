@@ -130,20 +130,22 @@ namespace Odoo.Examples
             });
             Console.WriteLine($"      → Created ID: {dynamicPartner.Id}");
             
-            // APPROACH B: Strongly-typed API with unified wrappers
-            Console.WriteLine("\n   B) Strongly-typed API (compile-time safety, IntelliSense):");
-            Console.WriteLine("      var typedPartner = env.Create(new ResPartnerValues {");
-            Console.WriteLine("          Name = \"Typed Partner\",");
-            Console.WriteLine("          Email = \"typed@example.com\",");
-            Console.WriteLine("          IsCompany = true");
-            Console.WriteLine("      });");
+            // APPROACH B: Strongly-typed API with unified wrappers (read access)
+            // Note: When dynamically loading modules, use dynamic Create API,
+            // then typed GetRecord<T> API for reading with full type safety.
+            Console.WriteLine("\n   B) Strongly-typed Read API (compile-time safety, IntelliSense):");
+            Console.WriteLine("      // First create via dynamic API:");
+            Console.WriteLine("      var typedRecord = env[\"res.partner\"].Create(new { ... });");
+            Console.WriteLine("      // Then access with typed interface:");
+            Console.WriteLine("      var typedPartner = env.GetRecord<IPartnerBase>(\"res.partner\", typedRecord.Id);");
             
-            // Since we reference Odoo.Base, we have access to the typed API!
-            var typedPartner = env.Create(new ResPartnerValues {
-                Name = "Typed Partner",
-                Email = "typed@example.com",
-                IsCompany = true
+            // Create via dynamic API, then access typed
+            var typedRecord = env["res.partner"].Create(new {
+                name = "Typed Partner",
+                email = "typed@example.com",
+                is_company = true
             });
+            var typedPartner = env.GetRecord<IPartnerBase>("res.partner", typedRecord.Id);
             Console.WriteLine($"      → Created ID: {typedPartner.Id}");
             Console.WriteLine($"      → Name: {typedPartner.Name}");
             Console.WriteLine($"      → IsCompany: {typedPartner.IsCompany}");
@@ -191,12 +193,12 @@ namespace Odoo.Examples
             Console.WriteLine("\n8. Typed RecordSet Operations:");
             Console.WriteLine("   ─────────────────────────────────────────────────────────────");
             
-            // Create a few more partners
-            var partner2 = env.Create(new ResPartnerValues { Name = "Contact A", IsCompany = false });
-            var partner3 = env.Create(new ResPartnerValues { Name = "Company B", IsCompany = true });
+            // Create a few more partners via dynamic API (avoids cross-assembly type issues)
+            var partner2Record = env["res.partner"].Create(new { name = "Contact A", is_company = false });
+            var partner3Record = env["res.partner"].Create(new { name = "Company B", is_company = true });
             
-            var partners = env.GetRecords<IPartnerBase>("res.partner", new[] { typedPartner.Id, partner2.Id, partner3.Id });
-            Console.WriteLine($"\n   var partners = env.GetRecords<IPartnerBase>(\"res.partner\", new[] {{ {typedPartner.Id}, {partner2.Id}, {partner3.Id} }});");
+            var partners = env.GetRecords<IPartnerBase>("res.partner", new[] { typedPartner.Id, partner2Record.Id, partner3Record.Id });
+            Console.WriteLine($"\n   var partners = env.GetRecords<IPartnerBase>(\"res.partner\", new[] {{ {typedPartner.Id}, {partner2Record.Id}, {partner3Record.Id} }});");
             Console.WriteLine($"   partners.Count → {partners.Count}");
             
             Console.WriteLine("\n   // Type-safe LINQ filtering:");

@@ -30,8 +30,9 @@ class Program
             Console.WriteLine("  4. Original Python.NET Demo");
             Console.WriteLine("  5. Modularity & Pipeline Demo");
             Console.WriteLine("  6. Typed API Demo (Source Generator showcase)");
+            Console.WriteLine("  7. Write/Create Pipeline Demo (Odoo-aligned architecture)");
             Console.WriteLine();
-            Console.Write("Enter your choice (1-6): ");
+            Console.Write("Enter your choice (1-7): ");
 
             choice = Console.ReadLine();
         }
@@ -58,6 +59,9 @@ class Program
                 break;
             case "6":
                 RunTypedApiDemo();
+                break;
+            case "7":
+                RunWritePipelineDemo();
                 break;
             default:
                 Console.WriteLine("Invalid choice. Running Basic Demo...");
@@ -189,6 +193,19 @@ class Program
         catch (Exception ex)
         {
             Console.WriteLine($"Error running typed API demo: {ex.Message}");
+            Console.WriteLine(ex.StackTrace);
+        }
+    }
+
+    static void RunWritePipelineDemo()
+    {
+        try
+        {
+            WritePipelineDemo.RunDemo();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error running Write/Create pipeline demo: {ex.Message}");
             Console.WriteLine(ex.StackTrace);
         }
     }
