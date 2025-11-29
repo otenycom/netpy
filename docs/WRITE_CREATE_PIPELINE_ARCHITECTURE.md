@@ -1,10 +1,36 @@
 # Write/Create Pipeline Architecture
 
-## Implementation Status: ✅ COMPLETE
+## Implementation Status: ⚠️ PHASE 1-5 COMPLETE, COMPUTED FIELDS PENDING
 
-This architecture has been fully implemented. All phases are complete and the solution builds successfully.
+Phases 1-5 of this architecture have been implemented. The Write/Create pipeline patterns are working.
 
-**Implementation Date:** November 2024
+**Remaining Work:** Computed fields infrastructure needs updates to align with Odoo's batch pattern.
+
+
+---
+
+## 🔴 NEXT IMPLEMENTATION: Computed Fields (Batch Pattern)
+
+The following changes are required to complete computed field support:
+
+### Required Changes
+
+| Task | File | Description |
+|------|------|-------------|
+| **1.1** | `OdooModelGenerator.cs` | Change compute method signature from `RecordHandle` to `RecordSet<T>` |
+| **1.2** | `OdooEnvironment.cs` or new helper | Add `SetComputedValue<T>()` method for compute methods |
+| **1.3** | `OdooModelGenerator.cs` | Update property getter to create single-record RecordSet for compute call |
+| **2.1** | `addons/base/Models/Partner.cs` | Add computed `DisplayName` field with `[OdooCompute]` and `[OdooDepends]` |
+| **2.2** | `addons/base/Logic/PartnerLogic.cs` | Add `ComputeDisplayName(RecordSet<T>)` method |
+| **3.1** | `samples/Odoo.Demo/Examples/ComputedFieldDemo.cs` | Create demonstration |
+| **3.2** | `samples/Odoo.Demo/Program.cs` | Add menu option 8 for computed field demo |
+
+### Key Architecture Decisions
+
+1. ✅ **Compute methods use `RecordSet<T>` (batch)** - Aligns with Odoo's `for record in self:` pattern
+2. ✅ **Use `[OdooLogic]` for method registration** - Consistent with other pipeline methods
+3. ✅ **Add `SetComputedValue` helper** - Bypasses Write pipeline to avoid recursion
+4. ✅ **Interface attributes are sufficient** - `[OdooCompute]` and `[OdooDepends]` on property
 
 ## Executive Summary
 
@@ -513,42 +539,86 @@ We will **remove getter pipelines** and use direct cache access because:
 
 ```python
 class Partner(models.Model):
-    total_revenue = fields.Float(compute='_compute_revenue', store=True)
+    display_name = fields.Char(compute='_compute_display_name', store=True)
     
-    @api.depends('sale_order_ids.amount_total')
-    def _compute_revenue(self):
+    @api.depends('name', 'is_company')
+    def _compute_display_name(self):
         for record in self:
-            record.total_revenue = sum(record.sale_order_ids.mapped('amount_total'))
+            if record.is_company:
+                record.display_name = f"{record.name} | Company"
+            else:
+                record.display_name = record.name
 ```
 
-### Our C# Equivalent
+**Key insight:** Odoo compute methods always iterate over `self` (a recordset), even when triggered for a single record.
+
+### Our C# Equivalent (Batch Pattern)
 
 ```csharp
+// === INTERFACE: Define the computed field ===
 [OdooModel("res.partner")]
 public interface IPartnerBase : IOdooRecord
 {
+    [OdooField("name")]
     string Name { get; set; }
     
-    [OdooField("total_revenue")]
-    [OdooCompute(nameof(PartnerComputeMethods.ComputeRevenue))]
-    [OdooDepends("sale_order_ids.amount_total")]
-    decimal TotalRevenue { get; }  // Computed field - no setter
+    [OdooField("is_company")]
+    bool IsCompany { get; set; }
+    
+    [OdooField("display_name")]
+    [OdooCompute("_compute_display_name")]  // Method name that computes this field
+    [OdooDepends("name", "is_company")]      // Fields that trigger recomputation
+    string DisplayName { get; }              // Read-only computed field
 }
 
-// Compute methods in separate class
-public static class PartnerComputeMethods
+// === LOGIC: Implement the compute method ===
+public static class PartnerLogic
 {
-    [OdooCompute("res.partner", "total_revenue")]
-    public static void ComputeRevenue(RecordSet<IPartnerBase> records)
+    /// <summary>
+    /// Compute display_name for all partners in the recordset.
+    /// Uses batch pattern: iterates over self like Odoo's `for record in self:`.
+    /// </summary>
+    [OdooLogic("res.partner", "_compute_display_name")]
+    public static void ComputeDisplayName(RecordSet<IPartnerBase> self)
     {
-        foreach (var record in records)
+        foreach (var partner in self)
         {
-            // Access related records and compute
-            var total = record.SaleOrderIds.Sum(o => o.AmountTotal);
-            // Use internal setter that bypasses Write pipeline
-            PartnerPipelines.SetComputedValue(record.Handle,
-                ModelSchema.Partner.TotalRevenue, total);
+            var name = partner.Name ?? "";
+            var displayName = partner.IsCompany
+                ? $"{name} | Company"
+                : name;
+            
+            // SetComputedValue bypasses Write pipeline to avoid infinite recursion
+            partner.Env.SetComputedValue(
+                ModelSchema.Partner.ModelToken,
+                partner.Id,
+                ModelSchema.Partner.DisplayName,
+                displayName);
         }
+    }
+}
+```
+
+### SetComputedValue Helper Method
+
+**Purpose:** Allow compute methods to set field values without triggering the Write pipeline (which would cause infinite loops).
+
+```csharp
+// In OdooEnvironment or as extension method
+public static void SetComputedValue<T>(
+    this IEnvironment env,
+    ModelHandle model,
+    int recordId,
+    FieldHandle field,
+    T value)
+{
+    // Direct cache write - no pipeline, no Modified trigger
+    env.Columns.SetValue(model, recordId, field, value);
+    
+    // Clear the recompute flag for this field
+    if (env is OdooEnvironment odooEnv)
+    {
+        odooEnv.ComputeTracker.ClearRecompute(model, recordId, field);
     }
 }
 ```
@@ -556,48 +626,116 @@ public static class PartnerComputeMethods
 ### Generated Code for Computed Fields
 
 ```csharp
+// Generated wrapper class
 public sealed class Partner : IPartnerBase
 {
-    // Stored field - normal getter (direct cache)
+    private readonly RecordHandle _handle;
+    
+    // Regular stored field - direct cache access
     public string Name
     {
-        get => _handle.Env.Columns.GetValue<string>(
-            ModelSchema.Partner.ModelToken, _handle.Id, ModelSchema.Partner.Name);
-        set => PartnerPipelines.Write(_handle, new PartnerValues { Name = value });
+        get => Env.Columns.GetValue<string>(
+            ModelSchema.Partner.ModelToken, Id, ModelSchema.Partner.Name);
+        set
+        {
+            var vals = new Dictionary<string, object?> { { "name", value } };
+            PartnerPipelines.Write(_handle, vals);
+        }
     }
     
-    // Computed field - triggers computation on cache miss
-    public decimal TotalRevenue
+    // Computed field - checks NeedsRecompute, triggers compute if needed
+    public string DisplayName
     {
         get
         {
-            var cache = _handle.Env.Columns;
-            
-            // Check if needs recompute
-            if (NeedsRecompute(_handle, ModelSchema.Partner.TotalRevenue))
+            // Check if recomputation is needed
+            if (Env is OdooEnvironment odooEnv &&
+                odooEnv.ComputeTracker.NeedsRecompute(
+                    ModelSchema.Partner.ModelToken, Id, ModelSchema.Partner.DisplayName))
             {
-                TriggerCompute(_handle, "total_revenue");
+                // Create single-record RecordSet for batch-compatible compute
+                var recordSet = Env.CreateRecordSet<IPartnerBase>(new[] { Id });
+                
+                // Call the compute method via pipeline
+                PartnerPipelines.Compute_DisplayName(recordSet);
             }
             
-            return cache.GetValue<decimal>(
-                ModelSchema.Partner.ModelToken, _handle.Id,
-                ModelSchema.Partner.TotalRevenue);
+            // Return value from cache
+            return Env.Columns.GetValue<string>(
+                ModelSchema.Partner.ModelToken, Id, ModelSchema.Partner.DisplayName);
         }
-        // No setter - computed fields are read-only to user code
+        // No setter - computed fields are read-only
+    }
+}
+
+// Generated pipeline class
+public static class PartnerPipelines
+{
+    /// <summary>
+    /// Trigger computation of DisplayName for the given records.
+    /// Calls the registered compute method via pipeline.
+    /// </summary>
+    public static void Compute_DisplayName(RecordSet<IPartnerBase> self)
+    {
+        var pipeline = self.Env.GetPipeline<Action<RecordSet<IPartnerBase>>>(
+            "res.partner", "_compute_display_name");
+        pipeline(self);
+    }
+    
+    /// <summary>
+    /// Base compute implementation - no-op, actual logic provided by module.
+    /// </summary>
+    public static void Compute_DisplayName_Base(RecordSet<IPartnerBase> self)
+    {
+        // No-op base - module provides actual computation via [OdooLogic]
     }
 }
 ```
 
-### Dependency Graph
+### Sequence Diagram: Computed Field Access
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Wrapper as Partner.DisplayName getter
+    participant Tracker as ComputeTracker
+    participant Pipeline as Compute Pipeline
+    participant Logic as PartnerLogic.ComputeDisplayName
+    participant Cache as ColumnarCache
+    
+    User->>Wrapper: partner.DisplayName
+    Wrapper->>Tracker: NeedsRecompute?
+    
+    alt Needs Recompute
+        Tracker-->>Wrapper: true
+        Wrapper->>Wrapper: CreateRecordSet self with Id
+        Wrapper->>Pipeline: Compute_DisplayName self
+        Pipeline->>Logic: ComputeDisplayName self
+        
+        loop for each partner in self
+            Logic->>Cache: SetComputedValue display_name
+        end
+        
+        Logic->>Tracker: ClearRecompute display_name
+    else Already Computed
+        Tracker-->>Wrapper: false
+    end
+    
+    Wrapper->>Cache: GetValue display_name
+    Cache-->>User: "Acme Corp | Company"
+```
+
+### Dependency Graph: Modified Triggers Recompute
 
 ```mermaid
 graph TD
-    A[sale_order.amount_total modified] --> B[Modified triggers]
-    B --> C[Find dependent fields]
-    C --> D[partner.total_revenue marked ToRecompute]
-    D --> E[On next read: TriggerCompute]
-    E --> F[ComputeRevenue called]
-    F --> G[Value stored in cache]
+    A[partner.name = New Value] --> B[Write Pipeline]
+    B --> C[Write_Base sets cache + marks dirty]
+    C --> D[Modified - name changed]
+    D --> E[ComputeTracker.Modified]
+    E --> F[Find dependents: display_name depends on name]
+    F --> G[MarkToRecompute display_name]
+    G --> H[Next access to DisplayName triggers compute]
 ```
 
 ---
@@ -1102,38 +1240,58 @@ public static class PartnerAccountExtensions
 }
 ```
 
-### Example 5: Computed Fields
+### Example 5: Computed Fields (DisplayName)
 
 ```csharp
-// In interface definition
+// === INTERFACE (addons/base/Models/Partner.cs) ===
 [OdooModel("res.partner")]
 public interface IPartnerBase : IOdooRecord
 {
+    [OdooField("name")]
     string Name { get; set; }
     
-    [OdooField("total_revenue")]
-    [OdooCompute("ComputeRevenue")]
-    [OdooDepends("sale_order_ids.amount_total")]
-    decimal TotalRevenue { get; }  // Computed - no setter
+    [OdooField("is_company")]
+    bool IsCompany { get; set; }
+    
+    [OdooField("display_name")]
+    [OdooCompute("_compute_display_name")]
+    [OdooDepends("name", "is_company")]
+    string DisplayName { get; }  // Computed - read-only
 }
 
-// Compute method
-public static class PartnerComputeMethods
+// === COMPUTE METHOD (addons/base/Logic/PartnerLogic.cs) ===
+public static class PartnerLogic
 {
-    [OdooCompute("res.partner", "total_revenue")]
-    public static void ComputeRevenue(RecordHandle handle)
+    /// <summary>
+    /// Compute display_name for all partners in the recordset.
+    /// Pattern: Batch iteration like Odoo's `for record in self:`.
+    /// </summary>
+    [OdooLogic("res.partner", "_compute_display_name")]
+    public static void ComputeDisplayName(RecordSet<IPartnerBase> self)
     {
-        // Get related sale orders and sum amounts
-        var partner = handle.As<IPartnerBase>();
-        var total = partner.SaleOrderIds.Sum(o => o.AmountTotal);
-        
-        // Set computed value (bypasses normal Write pipeline)
-        handle.Env.Columns.SetValue(
-            ModelSchema.Partner.ModelToken, handle.Id,
-            ModelSchema.Partner.TotalRevenue, total);
+        foreach (var partner in self)
+        {
+            var name = partner.Name ?? "";
+            var displayName = partner.IsCompany
+                ? $"{name} | Company"
+                : name;
+            
+            // SetComputedValue bypasses Write pipeline
+            partner.Env.SetComputedValue(
+                ModelSchema.Partner.ModelToken,
+                partner.Id,
+                ModelSchema.Partner.DisplayName,
+                displayName);
+        }
     }
 }
 ```
+
+**Key Points:**
+- `[OdooCompute("_compute_display_name")]` - references the pipeline method name
+- `[OdooDepends("name", "is_company")]` - triggers recomputation when these fields change
+- `RecordSet<IPartnerBase> self` - batch pattern, even for single records
+- `SetComputedValue` - direct cache write without triggering Write pipeline
 
 ### Example 6: Flush and Dirty Tracking
 
