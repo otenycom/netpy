@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Odoo.Core/Odoo.Core.csproj" />
+    <ProjectReference Include="../../src/Odoo.Python/Odoo.Python.csproj" />
     <ProjectReference Include="../../addons/base/Odoo.Base.csproj" />
     <ProjectReference Include="../../addons/sale/Odoo.Sale.csproj" />
     <ProjectReference Include="../../addons/purchase/Odoo.Purchase.csproj" />

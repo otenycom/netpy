@@ -18,8 +18,8 @@ namespace Odoo.Core
     public class OdooEnvironment : IEnvironment
     {
         private readonly Dictionary<Type, Delegate> _recordFactories = new();
-        private readonly ModelRegistry? _modelRegistry;
         private readonly PipelineRegistry _pipelineRegistry;
+        private readonly ModelRegistry? _modelRegistry;
 
         /// <summary>
         /// Identity Map: Caches record instances to ensure reference equality.
@@ -78,6 +78,16 @@ namespace Odoo.Core
             IdGenerator = new IdGenerator();
             DirtyTracker = dirtyTracker ?? new DirtyTracker();
             ComputeTracker = computeTracker ?? new ComputeTracker(_modelRegistry);
+        }
+
+        /// <summary>
+        /// Get the schema for a model by name.
+        /// </summary>
+        /// <param name="modelName">The model name (e.g., "res.partner").</param>
+        /// <returns>The model schema, or null if not found.</returns>
+        public ModelSchema? GetModelSchema(string modelName)
+        {
+            return _modelRegistry?.GetModel(modelName);
         }
 
         /// <summary>
