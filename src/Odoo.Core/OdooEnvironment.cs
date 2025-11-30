@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Odoo.Core.Modules;
 using Odoo.Core.Pipeline;
 
@@ -20,6 +21,7 @@ namespace Odoo.Core
         private readonly Dictionary<Type, Delegate> _recordFactories = new();
         private readonly PipelineRegistry _pipelineRegistry;
         private readonly ModelRegistry? _modelRegistry;
+        private readonly PipelineArgumentResolver _argumentResolver = new();
 
         /// <summary>
         /// Handler registry: model name → values handler instance.
@@ -130,259 +132,82 @@ namespace Odoo.Core
 
             var parameters = invokeMethod.GetParameters();
 
-            // Common patterns for "model" base and model-specific pipelines:
-            // 1. (RecordSet<T>) - for action methods like action_verify
-            // 2. (RecordHandle, IRecordValues) - for write methods
-            // 3. (OdooEnvironment, string, IRecordValues) - for create methods (BaseModel.Create_Base)
-            // 4. (OdooEnvironment, string, IEnumerable<long>) - for browse methods (BaseModel.Browse_Base)
-            // 5. (OdooEnvironment, string, IEnumerable<long>, IDictionary<string, object>) - for write_dict
-
-            if (parameters.Length == 1)
+            // Special case: write methods with RecordHandle iterate over each record
+            // Signature: (RecordHandle, IRecordValues) or similar with RecordHandle first
+            if (IsRecordHandleIterationPattern(parameters) && recordIds.Length > 1)
             {
-                var paramType = parameters[0].ParameterType;
-
-                // Check if it's RecordSet<T>
-                if (
-                    paramType.IsGenericType
-                    && paramType.GetGenericTypeDefinition() == typeof(RecordSet<>)
-                )
-                {
-                    // Create a RecordSet of the appropriate type
-                    var recordType = paramType.GetGenericArguments()[0];
-                    var recordSet = CreateRecordSetForType(recordType, recordIds);
-                    return pipelineDelegate.DynamicInvoke(recordSet);
-                }
-            }
-
-            // Handle browse method: (OdooEnvironment, string, IEnumerable<long>) -> BrowseResult
-            // Note: BaseModel.Browse_Base returns BrowseResult, not RecordSetWrapper
-            if (
-                parameters.Length == 3
-                && typeof(OdooEnvironment).IsAssignableFrom(parameters[0].ParameterType)
-                && parameters[1].ParameterType == typeof(string)
-                && typeof(System.Collections.IEnumerable).IsAssignableFrom(
-                    parameters[2].ParameterType
-                )
-            )
-            {
-                // args[0] should be IEnumerable<long> (the IDs)
-                var ids = args.Length > 0 ? args[0] : new long[0];
-                var result = pipelineDelegate.DynamicInvoke(this, modelName, ids);
-
-                // Convert BrowseResult to a usable wrapper object that has the expected interface
-                // The result has Env, ModelName, Ids properties
-                return result;
-            }
-
-            // Handle create method: (OdooEnvironment, string, IRecordValues) -> IOdooRecord
-            // Note: BaseModel.Create_Base takes modelName as 2nd parameter
-            if (
-                parameters.Length == 3
-                && typeof(OdooEnvironment).IsAssignableFrom(parameters[0].ParameterType)
-                && parameters[1].ParameterType == typeof(string)
-                && typeof(IRecordValues).IsAssignableFrom(parameters[2].ParameterType)
-            )
-            {
-                if (args.Length >= 1)
-                {
-                    // Convert dictionary argument to IRecordValues using the values handler
-                    IRecordValues vals;
-                    if (args[0] is IRecordValues recordVals)
-                    {
-                        vals = recordVals;
-                    }
-                    else if (args[0] is IDictionary<string, object> dict)
-                    {
-                        // Convert dictionary to IRecordValues using the handler
-                        var handler = GetValuesHandler(modelName);
-                        vals = handler.FromDictionary(
-                            new Dictionary<string, object?>(
-                                dict.Select(kvp => new KeyValuePair<string, object?>(
-                                    kvp.Key,
-                                    kvp.Value
-                                ))
-                            )
-                        );
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException(
-                            $"create() expects a dictionary or IRecordValues, got {args[0]?.GetType().Name ?? "null"}"
-                        );
-                    }
-
-                    return pipelineDelegate.DynamicInvoke(this, modelName, vals);
-                }
-            }
-
-            // Handle write method with IRecordValues: (RecordHandle, IRecordValues)
-            if (
-                parameters.Length == 2
-                && parameters[0].ParameterType == typeof(RecordHandle)
-                && typeof(IRecordValues).IsAssignableFrom(parameters[1].ParameterType)
-            )
-            {
-                // Need at least 1 record ID and 1 argument (the values)
-                if (recordIds.Length >= 1 && args.Length >= 1)
-                {
-                    IRecordValues vals;
-                    if (args[0] is IRecordValues recordVals)
-                    {
-                        vals = recordVals;
-                    }
-                    else if (args[0] is IDictionary<string, object> dict)
-                    {
-                        // Convert dictionary to IRecordValues using the handler
-                        var handler = GetValuesHandler(modelName);
-                        vals = handler.FromDictionary(
-                            new Dictionary<string, object?>(
-                                dict.Select(kvp => new KeyValuePair<string, object?>(
-                                    kvp.Key,
-                                    kvp.Value
-                                ))
-                            )
-                        );
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException(
-                            $"write() expects a dictionary or IRecordValues, got {args[0]?.GetType().Name ?? "null"}"
-                        );
-                    }
-
-                    var modelToken = GetModelToken(modelName);
-                    foreach (var id in recordIds)
-                    {
-                        var handle = new RecordHandle(this, id, modelToken);
-                        pipelineDelegate.DynamicInvoke(handle, vals);
-                    }
-                    return true;
-                }
-            }
-
-            // Handle write_dict: (OdooEnvironment, string, IEnumerable<long>, IDictionary<string, object>)
-            if (
-                parameters.Length == 4
-                && typeof(OdooEnvironment).IsAssignableFrom(parameters[0].ParameterType)
-                && parameters[1].ParameterType == typeof(string)
-                && typeof(System.Collections.IEnumerable).IsAssignableFrom(
-                    parameters[2].ParameterType
-                )
-                && typeof(IDictionary<string, object>).IsAssignableFrom(parameters[3].ParameterType)
-            )
-            {
-                if (
-                    recordIds.Length >= 1
-                    && args.Length >= 1
-                    && args[0] is IDictionary<string, object> dict
-                )
-                {
-                    var ids = recordIds.Select(id => (long)id.Value);
-                    return pipelineDelegate.DynamicInvoke(this, modelName, ids, dict);
-                }
-            }
-
-            // Handle IEnvironment-based create (for compatibility): (IEnvironment, IRecordValues)
-            if (
-                parameters.Length == 2
-                && typeof(IEnvironment).IsAssignableFrom(parameters[0].ParameterType)
-                && typeof(IRecordValues).IsAssignableFrom(parameters[1].ParameterType)
-            )
-            {
-                if (args.Length >= 1)
-                {
-                    // Convert dictionary argument to IRecordValues using the values handler
-                    IRecordValues vals;
-                    if (args[0] is IRecordValues recordVals)
-                    {
-                        vals = recordVals;
-                    }
-                    else if (args[0] is IDictionary<string, object> dict)
-                    {
-                        // Convert dictionary to IRecordValues using the handler
-                        var handler = GetValuesHandler(modelName);
-                        vals = handler.FromDictionary(
-                            new Dictionary<string, object?>(
-                                dict.Select(kvp => new KeyValuePair<string, object?>(
-                                    kvp.Key,
-                                    kvp.Value
-                                ))
-                            )
-                        );
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException(
-                            $"create() expects a dictionary or IRecordValues, got {args[0]?.GetType().Name ?? "null"}"
-                        );
-                    }
-
-                    return pipelineDelegate.DynamicInvoke(this, vals);
-                }
-            }
-
-            // If we can't figure out how to invoke it, throw a helpful error
-            throw new InvalidOperationException(
-                $"Cannot dynamically invoke {modelName}.{methodName}. "
-                    + $"Expected RecordSet<T> parameter, got: {string.Join(", ", parameters.Select(p => p.ParameterType.Name))}"
-            );
-        }
-
-        /// <summary>
-        /// Create a RecordSet for a specific interface type using reflection.
-        /// </summary>
-        private object CreateRecordSetForType(Type recordType, RecordId[] recordIds)
-        {
-            // Get the model name from the type's OdooModel attribute
-            var modelAttr =
-                recordType.GetCustomAttributes(typeof(OdooModelAttribute), true).FirstOrDefault()
-                as OdooModelAttribute;
-            var modelName = modelAttr?.ModelName ?? recordType.Name.ToLower();
-
-            // Create RecordSet<T> using reflection
-            var recordSetType = typeof(RecordSet<>).MakeGenericType(recordType);
-
-            // The factory type is Func<IEnvironment, RecordId, T>
-            var factoryType = typeof(Func<,,>).MakeGenericType(
-                typeof(IEnvironment),
-                typeof(RecordId),
-                recordType
-            );
-
-            // We need to create a factory delegate that captures modelName
-            // Use a helper method that creates the closure properly
-            var createFactoryMethod = typeof(OdooEnvironment)
-                .GetMethod(
-                    "CreateRecordFactoryForType",
-                    System.Reflection.BindingFlags.NonPublic
-                        | System.Reflection.BindingFlags.Instance
-                )!
-                .MakeGenericMethod(recordType);
-
-            var factory = createFactoryMethod.Invoke(this, new object[] { modelName });
-
-            var constructor = recordSetType.GetConstructor(
-                new[] { typeof(IEnvironment), typeof(string), typeof(RecordId[]), factoryType }
-            );
-
-            if (constructor == null)
-            {
-                throw new InvalidOperationException(
-                    $"Cannot find RecordSet<{recordType.Name}> constructor"
+                return InvokeForEachRecord(
+                    pipelineDelegate,
+                    parameters,
+                    modelName,
+                    recordIds,
+                    args
                 );
             }
 
-            return constructor.Invoke(new object[] { this, modelName, recordIds, factory! });
+            // Use the dynamic argument resolver for all other cases
+            var context = new PipelineInvocationContext(this, modelName, recordIds, args);
+
+            try
+            {
+                var arguments = _argumentResolver.ResolveArguments(pipelineDelegate, context);
+                return pipelineDelegate.DynamicInvoke(arguments);
+            }
+            catch (Exception ex) when (ex is not InvalidOperationException)
+            {
+                // Wrap reflection/conversion exceptions with helpful context
+                throw new InvalidOperationException(
+                    $"Failed to invoke {modelName}.{methodName}: {ex.Message}. "
+                        + $"Parameters: {string.Join(", ", parameters.Select(p => $"{p.Name}: {p.ParameterType.Name}"))}",
+                    ex
+                );
+            }
         }
 
         /// <summary>
-        /// Helper method to create a record factory that captures the model name.
-        /// Called via reflection from CreateRecordSetForType.
+        /// Check if the delegate signature requires per-record iteration.
+        /// This is needed for write operations that take a single RecordHandle.
         /// </summary>
-        private Func<IEnvironment, RecordId, T> CreateRecordFactoryForType<T>(string modelName)
-            where T : class, IOdooRecord
+        private static bool IsRecordHandleIterationPattern(ParameterInfo[] parameters)
         {
-            return (env, id) => ((OdooEnvironment)env).GetRecord<T>(modelName, id);
+            return parameters.Length >= 1 && parameters[0].ParameterType == typeof(RecordHandle);
+        }
+
+        /// <summary>
+        /// Invoke a pipeline method for each record ID when the signature takes a single RecordHandle.
+        /// </summary>
+        private object? InvokeForEachRecord(
+            Delegate pipelineDelegate,
+            ParameterInfo[] parameters,
+            string modelName,
+            RecordId[] recordIds,
+            object[] args
+        )
+        {
+            object? lastResult = null;
+
+            foreach (var recordId in recordIds)
+            {
+                // Create context with single record for this iteration
+                var context = new PipelineInvocationContext(
+                    this,
+                    modelName,
+                    new[] { recordId },
+                    args
+                );
+
+                var arguments = _argumentResolver.ResolveArguments(pipelineDelegate, context);
+                lastResult = pipelineDelegate.DynamicInvoke(arguments);
+            }
+
+            // For write operations, return true to indicate success
+            var returnType = pipelineDelegate.GetType().GetMethod("Invoke")?.ReturnType;
+            if (returnType == typeof(void))
+            {
+                return true;
+            }
+
+            return lastResult;
         }
 
         public OdooEnvironment(
