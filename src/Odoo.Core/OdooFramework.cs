@@ -208,7 +208,13 @@ namespace Odoo.Core
     ///
     ///     [OdooModel("res.partner")]
     ///     public interface IPartnerBase : IModel { ... }
+    ///
+    /// The "model" name is the Odoo-equivalent of models.Model base class.
+    /// Methods registered with [OdooLogic("model", ...)] apply to all models
+    /// that inherit from IModel, providing a consistent way to define base
+    /// ORM operations like write, create, browse.
     /// </summary>
+    [OdooModel("model")]
     public interface IModel : IOdooRecord
     {
         /// <summary>

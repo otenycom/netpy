@@ -32,10 +32,20 @@ namespace Odoo.Core.Pipeline
         public TDelegate GetPipeline<TDelegate>(string model, string method)
             where TDelegate : Delegate
         {
+            // First try model-specific pipeline
             if (_pipelines.TryGetValue((model, method), out var pipeline))
             {
                 return pipeline.GetChain<TDelegate>();
             }
+
+            // Fall back to "model" pipeline (IModel base methods)
+            // This mirrors Odoo's abstract BaseModel that provides default implementations
+            // Methods registered for "model" apply to all model interfaces that inherit from IModel
+            if (_pipelines.TryGetValue(("model", method), out var basePipeline))
+            {
+                return basePipeline.GetChain<TDelegate>();
+            }
+
             throw new KeyNotFoundException($"No pipeline found for {model}.{method}");
         }
 
@@ -51,11 +61,20 @@ namespace Odoo.Core.Pipeline
         public bool TryGetPipeline<TDelegate>(string model, string method, out TDelegate? pipeline)
             where TDelegate : Delegate
         {
+            // First try model-specific pipeline
             if (_pipelines.TryGetValue((model, method), out var methodPipeline))
             {
                 pipeline = methodPipeline.GetChain<TDelegate>();
                 return true;
             }
+
+            // Fall back to "model" pipeline (IModel base methods)
+            if (_pipelines.TryGetValue(("model", method), out var basePipeline))
+            {
+                pipeline = basePipeline.GetChain<TDelegate>();
+                return true;
+            }
+
             pipeline = default;
             return false;
         }
@@ -68,7 +87,9 @@ namespace Odoo.Core.Pipeline
         /// <returns>True if a pipeline exists, false otherwise</returns>
         public bool HasPipeline(string model, string method)
         {
-            return _pipelines.ContainsKey((model, method));
+            // Check both model-specific and "model" base pipelines
+            return _pipelines.ContainsKey((model, method))
+                || _pipelines.ContainsKey(("model", method));
         }
 
         /// <summary>
@@ -80,10 +101,18 @@ namespace Odoo.Core.Pipeline
         /// <returns>The compiled delegate, or null if not found</returns>
         public Delegate? GetPipelineDelegate(string model, string method)
         {
+            // First try model-specific pipeline
             if (_pipelines.TryGetValue((model, method), out var pipeline))
             {
                 return pipeline.GetCompiledDelegate();
             }
+
+            // Fall back to "model" pipeline (IModel base methods)
+            if (_pipelines.TryGetValue(("model", method), out var basePipeline))
+            {
+                return basePipeline.GetCompiledDelegate();
+            }
+
             return null;
         }
 

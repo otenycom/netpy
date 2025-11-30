@@ -3,7 +3,7 @@ using Odoo.Core;
 namespace Odoo.Base.Models
 {
     [OdooModel("res.partner")]
-    public interface IPartnerBase : IOdooRecord
+    public interface IPartnerBase : IModel
     {
         [OdooField("name")]
         string Name { get; set; }

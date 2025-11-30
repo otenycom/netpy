@@ -200,14 +200,12 @@ namespace Odoo.Python
         /// <summary>
         /// Check if a method exists in the pipeline registry.
         /// Used by Python __getattr__ to determine if a method call should be forwarded.
-        /// Also returns true for base IModel methods (browse, create, search).
+        /// Base IModel methods (browse, create, search) are registered with "model" pattern
+        /// so they're automatically available through the pipeline lookup via inheritance.
         /// </summary>
         public bool HasMethod(string methodName)
         {
-            // Built-in IModel base methods are always available
-            if (methodName == "browse" || methodName == "create" || methodName == "search")
-                return true;
-
+            // Pipeline lookup automatically falls back to "model" base for IModel methods
             return _env.HasPipeline(_modelName, methodName);
         }
 
@@ -224,38 +222,36 @@ namespace Odoo.Python
         /// <summary>
         /// Invoke a pipeline method dynamically with arguments.
         /// Called from Python when accessing methods like env['res.partner'].browse(1), .create({})
+        /// All methods (including browse, create, search) go through the pipeline system.
         /// </summary>
         public object? InvokeMethod(string methodName, params object[] args)
         {
-            // Special handling for base IModel methods
-            switch (methodName)
+            // All methods go through the pipeline - no more hardcoded handling
+            // The "model" base pipelines handle browse, create, write, etc.
+            var result = _env.InvokePipelineMethod(
+                _modelName,
+                methodName,
+                Array.Empty<RecordId>(),
+                args
+            );
+
+            // Convert BrowseResult to RecordSetWrapper for proper Python interface
+            if (result is BaseModel.BrowseResult browseResult)
             {
-                case "browse":
-                    // Convert args to list of IDs
-                    var ids = ExtractIds(args);
-                    return new RecordSetWrapper(_env, _modelName, ids);
-
-                case "create":
-                    // args[0] should be a dictionary of values
-                    if (args.Length > 0 && args[0] is IDictionary<string, object> vals)
-                    {
-                        return Create(vals);
-                    }
-                    throw new ArgumentException("create() requires a dictionary of values");
-
-                case "search":
-                    // args[0] should be the domain
-                    return Search(args.Length > 0 ? args[0] : new object[0]);
-
-                default:
-                    // Model-level methods operate on empty recordset
-                    return _env.InvokePipelineMethod(
-                        _modelName,
-                        methodName,
-                        Array.Empty<RecordId>(),
-                        args
-                    );
+                return new RecordSetWrapper(
+                    browseResult.Env,
+                    browseResult.ModelName,
+                    browseResult.Ids
+                );
             }
+
+            // If result is an IOdooRecord (from create), wrap in RecordSetWrapper
+            if (result is IOdooRecord record)
+            {
+                return new RecordSetWrapper(_env, _modelName, new[] { record.Id });
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -419,14 +415,12 @@ namespace Odoo.Python
         /// <summary>
         /// Check if a method exists in the pipeline registry.
         /// Used by Python __getattr__ to determine if a method call should be forwarded.
-        /// Also returns true for base IModel methods (write, read, unlink).
+        /// Base IModel methods (write, read, unlink) are registered with "model" pattern
+        /// so they're automatically available through the pipeline lookup via inheritance.
         /// </summary>
         public bool HasMethod(string methodName)
         {
-            // Built-in IModel base methods are always available on recordsets
-            if (methodName == "write" || methodName == "read" || methodName == "unlink")
-                return true;
-
+            // Pipeline lookup automatically falls back to "model" base for IModel methods
             return _env.HasPipeline(_modelName, methodName);
         }
 
@@ -442,32 +436,13 @@ namespace Odoo.Python
         /// <summary>
         /// Invoke a pipeline method dynamically with arguments on this recordset.
         /// Called from Python when accessing methods like records.write({})
+        /// All methods (including write, read) go through the pipeline system.
         /// </summary>
         public object? InvokeMethod(string methodName, params object[] args)
         {
-            // Special handling for base IModel methods on recordsets
-            switch (methodName)
-            {
-                case "write":
-                    // args[0] should be a dictionary of values
-                    if (args.Length > 0 && args[0] is IDictionary<string, object> vals)
-                    {
-                        return Write(vals);
-                    }
-                    throw new ArgumentException("write() requires a dictionary of values");
-
-                case "read":
-                    // args[0] should be optional list of field names
-                    var fields =
-                        args.Length > 0
-                            ? (args[0] as System.Collections.IEnumerable)?.Cast<string>()
-                            : null;
-                    return Read(fields);
-
-                default:
-                    // Pipeline method on recordset
-                    return _env.InvokePipelineMethod(_modelName, methodName, _ids, args);
-            }
+            // All methods go through the pipeline - no more hardcoded handling
+            // The "model" base pipelines handle write, etc.
+            return _env.InvokePipelineMethod(_modelName, methodName, _ids, args);
         }
 
         public override string ToString()
@@ -628,8 +603,33 @@ namespace Odoo.Python
         }
 
         /// <summary>
+        /// Check if a method exists in the pipeline registry.
+        /// Used by Python __getattr__ to determine if a method call should be forwarded.
+        /// Base IModel methods (write, read) are registered with "model" pattern
+        /// so they're automatically available through the pipeline lookup via inheritance.
+        /// </summary>
+        public bool HasMethod(string methodName)
+        {
+            // Pipeline lookup automatically falls back to "model" base for IModel methods
+            return _env.HasPipeline(_modelName, methodName);
+        }
+
+        /// <summary>
+        /// Invoke a pipeline method dynamically on this record.
+        /// Called from Python when accessing a method like record.write({})
+        /// All methods (including write, read) go through the pipeline system.
+        /// </summary>
+        public object? InvokeMethod(string methodName, params object[] args)
+        {
+            // All methods go through the pipeline - no more hardcoded handling
+            // The "model" base pipelines handle write, etc.
+            return _env.InvokePipelineMethod(_modelName, methodName, new[] { _id }, args);
+        }
+
+        /// <summary>
         /// Write multiple values.
         /// Python: record.write({'name': 'New Name', 'email': 'test@example.com'})
+        /// NOTE: This is kept for direct C# usage. Python goes through InvokeMethod.
         /// </summary>
         public bool Write(IDictionary<string, object> vals)
         {
@@ -643,6 +643,7 @@ namespace Odoo.Python
         /// <summary>
         /// Read field values.
         /// Python: record.read(['name', 'email'])
+        /// NOTE: This is kept for direct C# usage. Python goes through InvokeMethod.
         /// </summary>
         public Dictionary<string, object?> Read(IEnumerable<string>? fields = null)
         {

@@ -107,14 +107,18 @@ namespace Odoo.Core
             var pipelineRegistry = new PipelineRegistry();
             var registryBuilder = new RegistryBuilder();
 
-            // 3. Scan assemblies for models
+            // 3. Register BaseModel methods with "model" pattern (IModel base interface)
+            // These provide default implementations for all models that inherit from IModel
+            RegisterBaseModelPipelines(pipelineRegistry);
+
+            // 4. Scan assemblies for models
             foreach (var assembly in addonAssemblies)
             {
                 registryBuilder.ScanAssembly(assembly);
             }
             var modelRegistry = registryBuilder.Build();
 
-            // 4. Discover and invoke registrars
+            // 5. Discover and invoke registrars
             var registrars = DiscoverRegistrars(addonAssemblies);
 
             // Add any explicitly added registrars
@@ -132,13 +136,13 @@ namespace Odoo.Core
                 registrars.Last().RegisterFactories(modelRegistry);
             }
 
-            // 5. Compile pipelines
+            // 6. Compile pipelines
             pipelineRegistry.CompileAll();
 
-            // 6. Create environment
+            // 7. Create environment
             var env = new OdooEnvironment(_userId, _cache, modelRegistry, pipelineRegistry);
 
-            // 7. Register values handlers for IModel support
+            // 8. Register values handlers for IModel support
             // The last registrar has the unified handlers that see all extensions
             if (registrars.Count > 0)
             {
@@ -146,6 +150,51 @@ namespace Odoo.Core
             }
 
             return env;
+        }
+
+        /// <summary>
+        /// Register BaseModel methods (browse, write, create) with "model" pattern.
+        /// IModel is the base interface with [OdooModel("model")], and all model interfaces
+        /// inherit from it. Methods registered here apply to all models through pipeline inheritance.
+        /// Model-specific implementations can override these by registering with their actual model name.
+        /// </summary>
+        private void RegisterBaseModelPipelines(PipelineRegistry registry)
+        {
+            // Browse: (OdooEnvironment, string modelName, IEnumerable<long> ids) -> object (BrowseResult)
+            registry.RegisterBase(
+                "model",
+                "browse",
+                (Func<OdooEnvironment, string, IEnumerable<long>, object>)BaseModel.Browse_Base
+            );
+
+            // Write: (RecordHandle, IRecordValues) -> void
+            registry.RegisterBase(
+                "model",
+                "write",
+                (Action<RecordHandle, IRecordValues>)BaseModel.Write_Base
+            );
+
+            // Write with dictionary: (OdooEnvironment, modelName, ids, vals) -> bool
+            // Used for Python interop when passing raw dictionaries
+            registry.RegisterBase(
+                "model",
+                "write_dict",
+                (Func<
+                    OdooEnvironment,
+                    string,
+                    IEnumerable<long>,
+                    IDictionary<string, object>,
+                    bool
+                >)
+                    BaseModel.WriteDict_Base
+            );
+
+            // Create: (OdooEnvironment, string modelName, IRecordValues) -> IOdooRecord
+            registry.RegisterBase(
+                "model",
+                "create",
+                (Func<OdooEnvironment, string, IRecordValues, IOdooRecord>)BaseModel.Create_Base
+            );
         }
 
         /// <summary>

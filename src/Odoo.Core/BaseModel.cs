@@ -7,6 +7,10 @@ namespace Odoo.Core
     /// Base implementations for ORM methods (browse, write, create).
     /// Contains the single source of truth for these operations.
     /// Methods are registered in the pipeline system and can be overridden by addons.
+    ///
+    /// These methods are registered with model name "model" which corresponds to
+    /// the IModel interface ([OdooModel("model")]). All model interfaces that inherit
+    /// from IModel automatically get these base implementations through pipeline inheritance.
     /// </summary>
     public static class BaseModel
     {
@@ -23,7 +27,7 @@ namespace Odoo.Core
         /// <param name="modelName">The model name (e.g., "res.partner")</param>
         /// <param name="ids">The record IDs to browse</param>
         /// <returns>RecordSetWrapper for the specified IDs</returns>
-        [OdooLogic("*", "browse")]
+        [OdooLogic("model", "browse")]
         public static object Browse_Base(
             OdooEnvironment env,
             string modelName,
@@ -70,7 +74,7 @@ namespace Odoo.Core
         /// </summary>
         /// <param name="handle">The record handle (env, id, model token)</param>
         /// <param name="vals">The values to write</param>
-        [OdooLogic("*", "write")] // "*" means applies to all models as base
+        [OdooLogic("model", "write")]
         public static void Write_Base(RecordHandle handle, IRecordValues vals)
         {
             if (handle.Env is not OdooEnvironment env)
@@ -80,6 +84,43 @@ namespace Odoo.Core
             handler.ApplyToCache(vals, env.Columns, handle.Model, handle.Id);
             handler.MarkDirty(vals, env.Columns, handle.Model, handle.Id);
             handler.TriggerModified(vals, env, handle.Model, handle.Id);
+        }
+
+        /// <summary>
+        /// Write implementation for dictionary values (Python interop).
+        /// Used when the caller has a raw dictionary instead of typed IRecordValues.
+        /// </summary>
+        /// <param name="env">The environment</param>
+        /// <param name="modelName">The model name (e.g., "res.partner")</param>
+        /// <param name="ids">The record IDs to write to</param>
+        /// <param name="vals">The values dictionary</param>
+        [OdooLogic("model", "write_dict")]
+        public static bool WriteDict_Base(
+            OdooEnvironment env,
+            string modelName,
+            IEnumerable<long> ids,
+            IDictionary<string, object> vals
+        )
+        {
+            var modelToken = env.GetModelToken(modelName);
+            var handler = env.GetValuesHandler(modelName);
+
+            // Convert dictionary to IRecordValues using the handler
+            var typedVals = handler.FromDictionary(
+                new Dictionary<string, object?>(
+                    vals.Select(kvp => new KeyValuePair<string, object?>(kvp.Key, kvp.Value))
+                )
+            );
+
+            foreach (var id in ids)
+            {
+                var recordId = new RecordId((int)id);
+                handler.ApplyToCache(typedVals, env.Columns, modelToken, recordId);
+                handler.MarkDirty(typedVals, env.Columns, modelToken, recordId);
+                handler.TriggerModified(typedVals, env, modelToken, recordId);
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -100,7 +141,7 @@ namespace Odoo.Core
         /// <param name="modelName">The model name (e.g., "res.partner")</param>
         /// <param name="vals">The initial values</param>
         /// <returns>The newly created record</returns>
-        [OdooLogic("*", "create")]
+        [OdooLogic("model", "create")]
         public static IOdooRecord Create_Base(
             OdooEnvironment env,
             string modelName,

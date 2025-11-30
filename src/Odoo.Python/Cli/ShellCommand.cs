@@ -135,6 +135,8 @@ class RecordSetProxy:
     All methods (write, read, and custom pipeline methods) are handled
     through __getattr__ which delegates to C# InvokeMethod with arguments.
     This allows extensions to override any method via the pipeline system.
+    
+    No explicit base methods - everything flows through __getattr__.
     '''
     def __init__(self, csharp_recordset):
         self._recordset = csharp_recordset
@@ -157,10 +159,10 @@ class RecordSetProxy:
         return RecordProxy(self._recordset.__getitem__(index))
     
     def __getattr__(self, name):
-        '''Handle ALL method calls - base methods and pipeline methods
+        '''Handle ALL method calls - base methods (write, read) and pipeline methods
         
-        Base methods (write, read) and custom pipeline methods
-        are all invoked through InvokeMethod, allowing for extensibility.
+        All methods including write and read are invoked through InvokeMethod,
+        allowing extensions to override any method via the pipeline system.
         '''
         if name.startswith('_'):
             raise AttributeError(name)
@@ -168,6 +170,9 @@ class RecordSetProxy:
         if self._recordset.HasMethod(name):
             # Return a callable that invokes the method with arguments
             def method_wrapper(*args, **kwargs):
+                # Validate write argument type for better error messages
+                if name == 'write' and len(args) > 0 and not isinstance(args[0], dict):
+                    raise TypeError(f'write() expects a dict, got {type(args[0]).__name__}. Use colon not comma: {{""key"": value}}')
                 # Convert args to be C# friendly
                 converted_args = _convert_args_for_csharp(name, args, kwargs)
                 result = self._recordset.InvokeMethod(name, converted_args)
@@ -182,21 +187,6 @@ class RecordSetProxy:
         # For multiple records, return list of values
         return [getattr(rec, name) for rec in self]
     
-    def write(self, vals):
-        '''Write values to all records in the set
-        
-        This method provides type checking and user-friendly error messages.
-        '''
-        if not isinstance(vals, dict):
-            raise TypeError(f'write() expects a dict, got {type(vals).__name__}. Use colon not comma: {{""key"": value}}')
-        # Convert Python dict to C# Dictionary and call through InvokeMethod
-        converted_args = _convert_args_for_csharp('write', (vals,), {})
-        return self._recordset.InvokeMethod('write', converted_args)
-    
-    def read(self, fields=None):
-        '''Read field values from all records'''
-        return self._recordset.Read(fields)
-    
     def __repr__(self):
         return self._recordset.__repr__()
 ";
@@ -206,7 +196,11 @@ class RecordSetProxy:
 class RecordProxy:
     '''Python wrapper for RecordWrapper
     
-    Single record wrapper. Methods are delegated to the C# RecordWrapper.
+    Single record wrapper. All methods (write, read, and custom pipeline methods)
+    are handled through __getattr__ which delegates to C# InvokeMethod.
+    This allows extensions to override any method via the pipeline system.
+    
+    No explicit base methods - everything flows through __getattr__.
     '''
     def __init__(self, csharp_record):
         self._record = csharp_record
@@ -216,8 +210,30 @@ class RecordProxy:
         return self._record.Id
     
     def __getattr__(self, name):
+        '''Handle ALL attribute access - methods and fields
+        
+        Methods (including write, read) are invoked through InvokeMethod,
+        allowing extensions to override any method via the pipeline system.
+        Field access is delegated to the C# wrapper.
+        '''
         if name.startswith('_'):
             raise AttributeError(name)
+        # Check if this is a valid method (includes base methods like write, read)
+        if self._record.HasMethod(name):
+            # Return a callable that invokes the method with arguments
+            def method_wrapper(*args, **kwargs):
+                # Validate write argument type for better error messages
+                if name == 'write' and len(args) > 0 and not isinstance(args[0], dict):
+                    raise TypeError(f'write() expects a dict, got {type(args[0]).__name__}. Use colon not comma: {{""key"": value}}')
+                # Convert args to be C# friendly
+                converted_args = _convert_args_for_csharp(name, args, kwargs)
+                result = self._record.InvokeMethod(name, converted_args)
+                # Wrap result if it's a RecordSetWrapper
+                if hasattr(result, 'Ids'):
+                    return RecordSetProxy(result)
+                return result
+            return method_wrapper
+        # Fall back to field access
         return self._record.__getattr__(name)
     
     def __setattr__(self, name, value):
@@ -225,22 +241,6 @@ class RecordProxy:
             super().__setattr__(name, value)
         else:
             self._record.__setattr__(name, value)
-    
-    def write(self, vals):
-        '''Write values to this record'''
-        if not isinstance(vals, dict):
-            raise TypeError(f'write() expects a dict, got {type(vals).__name__}. Use colon not comma: {{""key"": value}}')
-        # Convert Python dict to C# Dictionary
-        from System.Collections.Generic import Dictionary
-        from System import String, Object
-        csharp_dict = Dictionary[String, Object]()
-        for key, value in vals.items():
-            csharp_dict[str(key)] = value
-        return self._record.Write(csharp_dict)
-    
-    def read(self, fields=None):
-        '''Read field values from this record'''
-        return self._record.Read(fields)
     
     def __repr__(self):
         return self._record.__repr__()
