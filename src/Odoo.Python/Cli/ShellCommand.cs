@@ -48,7 +48,12 @@ class OdooEnvProxy:
         public const string ModelProxyClass =
             @"
 class ModelProxy:
-    '''Python wrapper for ModelProxyWrapper'''
+    '''Python wrapper for ModelProxyWrapper
+    
+    All methods (browse, create, search, and custom pipeline methods) are handled
+    through __getattr__ which delegates to C# InvokeMethod with arguments.
+    This allows extensions to override any method via the pipeline system.
+    '''
     def __init__(self, csharp_model):
         self._model = csharp_model
     
@@ -56,45 +61,81 @@ class ModelProxy:
     def model_name(self):
         return self._model.ModelName
     
-    def browse(self, *ids):
-        '''Browse records by ID(s)'''
-        # Flatten IDs - handles browse(1), browse(1, 2), browse([1, 2])
-        flat_ids = []
-        for item in ids:
-            if isinstance(item, (list, tuple)):
-                flat_ids.extend(item)
-            else:
-                flat_ids.append(int(item))
-        # Call C# with a single int for single browse, or list for multiple
-        if len(flat_ids) == 1:
-            return RecordSetProxy(self._model.Browse(flat_ids[0]))
-        elif len(flat_ids) == 0:
-            return RecordSetProxy(self._model.Browse())
-        else:
-            return RecordSetProxy(self._model.Browse(flat_ids))
-    
-    def create(self, vals):
-        '''Create a new record'''
-        # Convert Python dict to C# Dictionary
-        from System.Collections.Generic import Dictionary
-        from System import String, Object
-        csharp_dict = Dictionary[String, Object]()
-        for key, value in vals.items():
-            csharp_dict[str(key)] = value
-        return RecordSetProxy(self._model.Create(csharp_dict))
-    
-    def search(self, domain):
-        '''Search for records'''
-        return RecordSetProxy(self._model.Search(domain))
+    def __getattr__(self, name):
+        '''Handle ALL method calls - base methods and pipeline methods
+        
+        Base methods (browse, create, search) and custom pipeline methods
+        are all invoked through InvokeMethod, allowing for extensibility.
+        '''
+        if name.startswith('_'):
+            raise AttributeError(name)
+        # Check if this is a valid method (includes base methods like browse, create, search)
+        if self._model.HasMethod(name):
+            # Return a callable that invokes the method with arguments
+            def method_wrapper(*args, **kwargs):
+                # Convert args to be C# friendly
+                converted_args = _convert_args_for_csharp(name, args, kwargs)
+                result = self._model.InvokeMethod(name, converted_args)
+                # Wrap result if it's a RecordSetWrapper
+                if hasattr(result, 'Ids'):
+                    return RecordSetProxy(result)
+                return result
+            return method_wrapper
+        raise AttributeError(f""'ModelProxy' object has no attribute '{name}'"")
     
     def __repr__(self):
         return f'<Model {self.model_name}>'
+
+def _convert_args_for_csharp(method_name, args, kwargs):
+    '''Convert Python arguments to C#-friendly format'''
+    from System.Collections.Generic import Dictionary, List
+    from System import String, Object, Int64
+    
+    converted = []
+    
+    for arg in args:
+        if isinstance(arg, dict):
+            # Convert Python dict to C# Dictionary
+            csharp_dict = Dictionary[String, Object]()
+            for key, value in arg.items():
+                csharp_dict[str(key)] = value
+            converted.append(csharp_dict)
+        elif isinstance(arg, (list, tuple)):
+            # Convert Python list to C# List<long> for IDs
+            if method_name == 'browse':
+                csharp_list = List[Int64]()
+                for item in arg:
+                    csharp_list.Add(int(item))
+                converted.append(csharp_list)
+            else:
+                # Generic list conversion
+                csharp_list = List[Object]()
+                for item in arg:
+                    csharp_list.Add(item)
+                converted.append(csharp_list)
+        elif isinstance(arg, int):
+            # For browse with single ID, wrap in a list
+            if method_name == 'browse':
+                csharp_list = List[Int64]()
+                csharp_list.Add(int(arg))
+                converted.append(csharp_list)
+            else:
+                converted.append(arg)
+        else:
+            converted.append(arg)
+    
+    return converted
 ";
 
         public const string RecordSetProxyClass =
             @"
 class RecordSetProxy:
-    '''Python wrapper for RecordSetWrapper'''
+    '''Python wrapper for RecordSetWrapper
+    
+    All methods (write, read, and custom pipeline methods) are handled
+    through __getattr__ which delegates to C# InvokeMethod with arguments.
+    This allows extensions to override any method via the pipeline system.
+    '''
     def __init__(self, csharp_recordset):
         self._recordset = csharp_recordset
     
@@ -116,24 +157,44 @@ class RecordSetProxy:
         return RecordProxy(self._recordset.__getitem__(index))
     
     def __getattr__(self, name):
-        # For single record, delegate to record
+        '''Handle ALL method calls - base methods and pipeline methods
+        
+        Base methods (write, read) and custom pipeline methods
+        are all invoked through InvokeMethod, allowing for extensibility.
+        '''
+        if name.startswith('_'):
+            raise AttributeError(name)
+        # Check if this is a valid method (includes base methods like write, read)
+        if self._recordset.HasMethod(name):
+            # Return a callable that invokes the method with arguments
+            def method_wrapper(*args, **kwargs):
+                # Convert args to be C# friendly
+                converted_args = _convert_args_for_csharp(name, args, kwargs)
+                result = self._recordset.InvokeMethod(name, converted_args)
+                # Wrap result if it's a RecordSetWrapper
+                if hasattr(result, 'Ids'):
+                    return RecordSetProxy(result)
+                return result
+            return method_wrapper
+        # For single record, delegate to record for field access
         if len(self) == 1:
             return getattr(self[0], name)
         # For multiple records, return list of values
         return [getattr(rec, name) for rec in self]
     
     def write(self, vals):
+        '''Write values to all records in the set
+        
+        This method provides type checking and user-friendly error messages.
+        '''
         if not isinstance(vals, dict):
             raise TypeError(f'write() expects a dict, got {type(vals).__name__}. Use colon not comma: {{""key"": value}}')
-        # Convert Python dict to C# Dictionary
-        from System.Collections.Generic import Dictionary
-        from System import String, Object
-        csharp_dict = Dictionary[String, Object]()
-        for key, value in vals.items():
-            csharp_dict[str(key)] = value
-        return self._recordset.Write(csharp_dict)
+        # Convert Python dict to C# Dictionary and call through InvokeMethod
+        converted_args = _convert_args_for_csharp('write', (vals,), {})
+        return self._recordset.InvokeMethod('write', converted_args)
     
     def read(self, fields=None):
+        '''Read field values from all records'''
         return self._recordset.Read(fields)
     
     def __repr__(self):
@@ -143,7 +204,10 @@ class RecordSetProxy:
         public const string RecordProxyClass =
             @"
 class RecordProxy:
-    '''Python wrapper for RecordWrapper'''
+    '''Python wrapper for RecordWrapper
+    
+    Single record wrapper. Methods are delegated to the C# RecordWrapper.
+    '''
     def __init__(self, csharp_record):
         self._record = csharp_record
     
@@ -163,6 +227,7 @@ class RecordProxy:
             self._record.__setattr__(name, value)
     
     def write(self, vals):
+        '''Write values to this record'''
         if not isinstance(vals, dict):
             raise TypeError(f'write() expects a dict, got {type(vals).__name__}. Use colon not comma: {{""key"": value}}')
         # Convert Python dict to C# Dictionary
@@ -174,6 +239,7 @@ class RecordProxy:
         return self._record.Write(csharp_dict)
     
     def read(self, fields=None):
+        '''Read field values from this record'''
         return self._record.Read(fields)
     
     def __repr__(self):

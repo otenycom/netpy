@@ -448,4 +448,83 @@ except TypeError as e:
         // Assert - command should complete (the exception is caught in Python)
         Assert.Equal(0, exitCode);
     }
+
+    /// <summary>
+    /// Test that action_verify method can be called on the model proxy.
+    /// This tests that [OdooLogic] methods are discoverable and callable from Python.
+    ///
+    /// In Odoo, action methods can be called directly on the model:
+    ///   env['res.partner'].action_verify()  # Verifies all partners
+    ///
+    /// The method is defined with [OdooLogic("res.partner", "action_verify")] in PartnerLogic.cs
+    /// and should be callable from Python via dynamic method dispatch.
+    ///
+    /// ISSUE: This test currently fails because ModelProxy doesn't support dynamic method dispatch
+    /// for [OdooLogic] methods. The current ModelProxy only has hardcoded methods (browse, create, search).
+    /// See: docs/RECORDSET_UNIFICATION_ARCHITECTURE.md - "Dynamic Method Discovery" section.
+    /// </summary>
+    [Fact]
+    public void Shell_ActionVerify_CallableOnModelProxy()
+    {
+        // Arrange
+        var env = CreateEnvironment();
+
+        // Create some partners to verify
+        env.Create(new ResPartnerValues { Name = "Verify Test Partner 1" });
+        env.Create(new ResPartnerValues { Name = "Verify Test Partner 2" });
+
+        // Act - call action_verify on the model
+        // This should work: env['res.partner'].action_verify()
+        // The method signature is: ActionVerify(RecordSet<IPartnerBase> self)
+        // When called on model proxy, it should create an empty recordset and call the method
+        var exitCode = _shell.ExecuteCommand(
+            env,
+            @"
+import traceback
+try:
+    env['res.partner'].action_verify()
+except Exception as e:
+    print(f'ERROR: {type(e).__name__}: {e}')
+    traceback.print_exc()
+    raise
+"
+        );
+
+        // Assert - should execute without error
+        Assert.Equal(0, exitCode);
+    }
+
+    /// <summary>
+    /// Test that action_verify method can be called on a recordset.
+    /// This tests that [OdooLogic] methods work when called on browsed records.
+    ///
+    /// In Odoo:
+    ///   partner = env['res.partner'].browse(1)
+    ///   partner.action_verify()  # Verifies this specific partner
+    ///
+    /// The method is defined with [OdooLogic("res.partner", "action_verify")] in PartnerLogic.cs.
+    /// </summary>
+    [Fact]
+    public void Shell_ActionVerify_CallableOnRecordSet()
+    {
+        // Arrange
+        var env = CreateEnvironment();
+
+        // Create a partner to verify
+        var idResult = _shell.ExecuteExpression(
+            env,
+            "env['res.partner'].create({'name': 'Verify Partner'}).id"
+        );
+        Assert.NotNull(idResult);
+        var partnerId = Convert.ToInt32(idResult);
+
+        // Act - call action_verify on a specific recordset
+        var exitCode = _shell.ExecuteCommand(
+            env,
+            $"env['res.partner'].browse({partnerId}).action_verify()"
+        );
+
+        // Assert - should execute without error
+        Assert.Equal(0, exitCode);
+    }
 }

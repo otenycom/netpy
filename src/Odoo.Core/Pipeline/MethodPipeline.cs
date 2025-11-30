@@ -39,6 +39,17 @@ namespace Odoo.Core.Pipeline
             return (TDelegate)_compiledChain!;
         }
 
+        /// <summary>
+        /// Get the compiled delegate without type casting.
+        /// Used for dynamic invocation when the delegate type isn't known at compile time.
+        /// </summary>
+        public Delegate GetCompiledDelegate()
+        {
+            if (_compiledChain == null)
+                Compile();
+            return _compiledChain!;
+        }
+
         public void Compile()
         {
             if (_baseHandler == null)

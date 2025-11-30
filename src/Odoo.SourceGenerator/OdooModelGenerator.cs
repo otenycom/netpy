@@ -44,35 +44,9 @@ namespace Odoo.SourceGenerator
             // Step 2: Group interfaces by model name (e.g., "res.partner")
             var modelGroups = GroupInterfacesByModel(allOdooInterfaces);
 
-            // Process Logic Methods
-            var logicMethods = new List<LogicMethodInfo>();
-            foreach (var methodDecl in receiver.MethodsToProcess)
-            {
-                var model = compilation.GetSemanticModel(methodDecl.SyntaxTree);
-                var methodSymbol = model.GetDeclaredSymbol(methodDecl);
-
-                if (methodSymbol == null)
-                    continue;
-
-                var logicAttr = methodSymbol
-                    .GetAttributes()
-                    .FirstOrDefault(a => a.AttributeClass?.Name == "OdooLogicAttribute");
-
-                if (logicAttr != null)
-                {
-                    var modelName = logicAttr.ConstructorArguments[0].Value?.ToString() ?? "";
-                    var methodName = logicAttr.ConstructorArguments[1].Value?.ToString() ?? "";
-
-                    logicMethods.Add(
-                        new LogicMethodInfo
-                        {
-                            MethodSymbol = methodSymbol,
-                            ModelName = modelName,
-                            MethodName = methodName,
-                        }
-                    );
-                }
-            }
+            // Process Logic Methods from ALL visible sources
+            // This includes local methods AND methods from referenced assemblies
+            var logicMethods = CollectAllOdooLogicMethods(compilation, receiver);
 
             // Generate Module Registrar if logic methods or models exist
             if (logicMethods.Any() || modelGroups.Any())
@@ -2332,6 +2306,131 @@ namespace Odoo.SourceGenerator
             foreach (var childNs in ns.GetNamespaceMembers())
             {
                 CollectOdooInterfacesFromNamespace(childNs, result, processed);
+            }
+        }
+
+        /// <summary>
+        /// Collect ALL methods with [OdooLogic] attribute visible to this compilation.
+        /// This includes local methods AND methods from referenced assemblies.
+        /// </summary>
+        private List<LogicMethodInfo> CollectAllOdooLogicMethods(
+            Compilation compilation,
+            OdooModelSyntaxReceiver receiver
+        )
+        {
+            var result = new List<LogicMethodInfo>();
+            var processed = new HashSet<string>(StringComparer.Ordinal);
+
+            // 1. Collect from current compilation (local methods)
+            foreach (var methodDecl in receiver.MethodsToProcess)
+            {
+                var model = compilation.GetSemanticModel(methodDecl.SyntaxTree);
+                var methodSymbol = model.GetDeclaredSymbol(methodDecl);
+
+                if (methodSymbol == null)
+                    continue;
+
+                var logicAttr = methodSymbol
+                    .GetAttributes()
+                    .FirstOrDefault(a => a.AttributeClass?.Name == "OdooLogicAttribute");
+
+                if (logicAttr != null)
+                {
+                    var modelName = logicAttr.ConstructorArguments[0].Value?.ToString() ?? "";
+                    var methodName = logicAttr.ConstructorArguments[1].Value?.ToString() ?? "";
+
+                    var key =
+                        $"{methodSymbol.ContainingType.ToDisplayString()}.{methodSymbol.Name}";
+                    if (processed.Add(key))
+                    {
+                        result.Add(
+                            new LogicMethodInfo
+                            {
+                                MethodSymbol = methodSymbol,
+                                ModelName = modelName,
+                                MethodName = methodName,
+                            }
+                        );
+                    }
+                }
+            }
+
+            // 2. Collect from referenced assemblies
+            foreach (var reference in compilation.References)
+            {
+                var assemblySymbol =
+                    compilation.GetAssemblyOrModuleSymbol(reference) as IAssemblySymbol;
+                if (assemblySymbol == null)
+                    continue;
+
+                CollectOdooLogicMethodsFromNamespace(
+                    assemblySymbol.GlobalNamespace,
+                    result,
+                    processed
+                );
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Recursively scan a namespace for [OdooLogic] methods.
+        /// </summary>
+        private void CollectOdooLogicMethodsFromNamespace(
+            INamespaceSymbol ns,
+            List<LogicMethodInfo> result,
+            HashSet<string> processed
+        )
+        {
+            foreach (var type in ns.GetTypeMembers())
+            {
+                // Only process static classes (which contain OdooLogic methods)
+                if (type.IsStatic)
+                {
+                    foreach (var member in type.GetMembers())
+                    {
+                        if (member is IMethodSymbol methodSymbol && methodSymbol.IsStatic)
+                        {
+                            var logicAttr = methodSymbol
+                                .GetAttributes()
+                                .FirstOrDefault(a =>
+                                    a.AttributeClass?.Name == "OdooLogicAttribute"
+                                );
+
+                            if (logicAttr != null && logicAttr.ConstructorArguments.Length >= 2)
+                            {
+                                var modelName =
+                                    logicAttr.ConstructorArguments[0].Value?.ToString() ?? "";
+                                var methodName =
+                                    logicAttr.ConstructorArguments[1].Value?.ToString() ?? "";
+
+                                // Skip wildcard methods (like "*" for BaseModel.Write_Base)
+                                // These are handled separately by RegisterDefaultBase
+                                if (modelName == "*")
+                                    continue;
+
+                                var key =
+                                    $"{methodSymbol.ContainingType.ToDisplayString()}.{methodSymbol.Name}";
+                                if (processed.Add(key))
+                                {
+                                    result.Add(
+                                        new LogicMethodInfo
+                                        {
+                                            MethodSymbol = methodSymbol,
+                                            ModelName = modelName,
+                                            MethodName = methodName,
+                                        }
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            foreach (var childNs in ns.GetNamespaceMembers())
+            {
+                CollectOdooLogicMethodsFromNamespace(childNs, result, processed);
             }
         }
 

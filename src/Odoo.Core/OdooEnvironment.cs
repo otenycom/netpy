@@ -68,6 +68,200 @@ namespace Odoo.Core
             return _pipelineRegistry.GetPipeline<TDelegate>(model, method);
         }
 
+        /// <summary>
+        /// Check if a pipeline method exists for the given model.
+        /// </summary>
+        /// <param name="model">The model name (e.g., "res.partner")</param>
+        /// <param name="method">The method name (e.g., "action_verify")</param>
+        /// <returns>True if a pipeline exists, false otherwise</returns>
+        public bool HasPipeline(string model, string method)
+        {
+            return _pipelineRegistry.HasPipeline(model, method);
+        }
+
+        /// <summary>
+        /// Invoke a pipeline method dynamically with a recordset.
+        /// Used for Python integration when the method name isn't known at compile time.
+        /// </summary>
+        /// <param name="modelName">The model name (e.g., "res.partner")</param>
+        /// <param name="methodName">The method name (e.g., "action_verify")</param>
+        /// <param name="recordIds">The record IDs to operate on</param>
+        /// <returns>The result of the method invocation, or null for void methods</returns>
+        public object? InvokePipelineMethod(
+            string modelName,
+            string methodName,
+            RecordId[] recordIds
+        )
+        {
+            return InvokePipelineMethod(modelName, methodName, recordIds, Array.Empty<object>());
+        }
+
+        /// <summary>
+        /// Invoke a pipeline method dynamically with a recordset and additional arguments.
+        /// Used for Python integration when the method name isn't known at compile time.
+        /// Supports browse, create, write, and custom pipeline methods.
+        /// </summary>
+        /// <param name="modelName">The model name (e.g., "res.partner")</param>
+        /// <param name="methodName">The method name (e.g., "browse", "create", "write")</param>
+        /// <param name="recordIds">The record IDs to operate on</param>
+        /// <param name="args">Additional arguments for the method</param>
+        /// <returns>The result of the method invocation, or null for void methods</returns>
+        public object? InvokePipelineMethod(
+            string modelName,
+            string methodName,
+            RecordId[] recordIds,
+            object[] args
+        )
+        {
+            var pipelineDelegate = _pipelineRegistry.GetPipelineDelegate(modelName, methodName);
+            if (pipelineDelegate == null)
+            {
+                throw new KeyNotFoundException($"No pipeline found for {modelName}.{methodName}");
+            }
+
+            // Analyze the delegate's parameters to determine how to call it
+            var invokeMethod = pipelineDelegate.GetType().GetMethod("Invoke");
+            if (invokeMethod == null)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot invoke pipeline {modelName}.{methodName}"
+                );
+            }
+
+            var parameters = invokeMethod.GetParameters();
+
+            // Common patterns:
+            // 1. (RecordSet<T>) - for action methods like action_verify
+            // 2. (RecordHandle, IRecordValues) - for write methods
+            // 3. (IEnvironment, IRecordValues) - for create methods
+            // 4. (OdooEnvironment, string, IEnumerable<long>) - for browse methods
+
+            if (parameters.Length == 1)
+            {
+                var paramType = parameters[0].ParameterType;
+
+                // Check if it's RecordSet<T>
+                if (
+                    paramType.IsGenericType
+                    && paramType.GetGenericTypeDefinition() == typeof(RecordSet<>)
+                )
+                {
+                    // Create a RecordSet of the appropriate type
+                    var recordType = paramType.GetGenericArguments()[0];
+                    var recordSet = CreateRecordSetForType(recordType, recordIds);
+                    return pipelineDelegate.DynamicInvoke(recordSet);
+                }
+            }
+
+            // Handle browse method: (OdooEnvironment, string, IEnumerable<long>)
+            if (parameters.Length == 3 && methodName == "browse")
+            {
+                // args[0] should be IEnumerable<long> (the IDs)
+                var ids = args.Length > 0 ? args[0] : new long[0];
+                return pipelineDelegate.DynamicInvoke(this, modelName, ids);
+            }
+
+            // Handle write method with IRecordValues: (RecordHandle, IRecordValues)
+            if (
+                parameters.Length == 2
+                && parameters[0].ParameterType == typeof(RecordHandle)
+                && typeof(IRecordValues).IsAssignableFrom(parameters[1].ParameterType)
+            )
+            {
+                // Need at least 1 record ID and 1 argument (the values)
+                if (recordIds.Length >= 1 && args.Length >= 1)
+                {
+                    var vals = args[0] as IRecordValues;
+                    if (vals != null)
+                    {
+                        var modelToken = GetModelToken(modelName);
+                        foreach (var id in recordIds)
+                        {
+                            var handle = new RecordHandle(this, id, modelToken);
+                            pipelineDelegate.DynamicInvoke(handle, vals);
+                        }
+                        return true;
+                    }
+                }
+            }
+
+            // Handle create method with IRecordValues: (IEnvironment, IRecordValues)
+            if (
+                parameters.Length == 2
+                && typeof(IEnvironment).IsAssignableFrom(parameters[0].ParameterType)
+                && typeof(IRecordValues).IsAssignableFrom(parameters[1].ParameterType)
+            )
+            {
+                if (args.Length >= 1 && args[0] is IRecordValues vals)
+                {
+                    return pipelineDelegate.DynamicInvoke(this, vals);
+                }
+            }
+
+            // If we can't figure out how to invoke it, throw a helpful error
+            throw new InvalidOperationException(
+                $"Cannot dynamically invoke {modelName}.{methodName}. "
+                    + $"Expected RecordSet<T> parameter, got: {string.Join(", ", parameters.Select(p => p.ParameterType.Name))}"
+            );
+        }
+
+        /// <summary>
+        /// Create a RecordSet for a specific interface type using reflection.
+        /// </summary>
+        private object CreateRecordSetForType(Type recordType, RecordId[] recordIds)
+        {
+            // Get the model name from the type's OdooModel attribute
+            var modelAttr =
+                recordType.GetCustomAttributes(typeof(OdooModelAttribute), true).FirstOrDefault()
+                as OdooModelAttribute;
+            var modelName = modelAttr?.ModelName ?? recordType.Name.ToLower();
+
+            // Create RecordSet<T> using reflection
+            var recordSetType = typeof(RecordSet<>).MakeGenericType(recordType);
+
+            // The factory type is Func<IEnvironment, RecordId, T>
+            var factoryType = typeof(Func<,,>).MakeGenericType(
+                typeof(IEnvironment),
+                typeof(RecordId),
+                recordType
+            );
+
+            // We need to create a factory delegate that captures modelName
+            // Use a helper method that creates the closure properly
+            var createFactoryMethod = typeof(OdooEnvironment)
+                .GetMethod(
+                    "CreateRecordFactoryForType",
+                    System.Reflection.BindingFlags.NonPublic
+                        | System.Reflection.BindingFlags.Instance
+                )!
+                .MakeGenericMethod(recordType);
+
+            var factory = createFactoryMethod.Invoke(this, new object[] { modelName });
+
+            var constructor = recordSetType.GetConstructor(
+                new[] { typeof(IEnvironment), typeof(string), typeof(RecordId[]), factoryType }
+            );
+
+            if (constructor == null)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot find RecordSet<{recordType.Name}> constructor"
+                );
+            }
+
+            return constructor.Invoke(new object[] { this, modelName, recordIds, factory! });
+        }
+
+        /// <summary>
+        /// Helper method to create a record factory that captures the model name.
+        /// Called via reflection from CreateRecordSetForType.
+        /// </summary>
+        private Func<IEnvironment, RecordId, T> CreateRecordFactoryForType<T>(string modelName)
+            where T : class, IOdooRecord
+        {
+            return (env, id) => ((OdooEnvironment)env).GetRecord<T>(modelName, id);
+        }
+
         public OdooEnvironment(
             int userId,
             IColumnarCache? cache = null,

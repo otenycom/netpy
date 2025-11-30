@@ -198,6 +198,80 @@ namespace Odoo.Python
         }
 
         /// <summary>
+        /// Check if a method exists in the pipeline registry.
+        /// Used by Python __getattr__ to determine if a method call should be forwarded.
+        /// Also returns true for base IModel methods (browse, create, search).
+        /// </summary>
+        public bool HasMethod(string methodName)
+        {
+            // Built-in IModel base methods are always available
+            if (methodName == "browse" || methodName == "create" || methodName == "search")
+                return true;
+
+            return _env.HasPipeline(_modelName, methodName);
+        }
+
+        /// <summary>
+        /// Invoke a pipeline method dynamically.
+        /// Called from Python when accessing a method like env['res.partner'].action_verify()
+        /// </summary>
+        public object? InvokeMethod(string methodName)
+        {
+            // Model-level methods operate on empty recordset (like Odoo's Model.action_verify())
+            return _env.InvokePipelineMethod(_modelName, methodName, Array.Empty<RecordId>());
+        }
+
+        /// <summary>
+        /// Invoke a pipeline method dynamically with arguments.
+        /// Called from Python when accessing methods like env['res.partner'].browse(1), .create({})
+        /// </summary>
+        public object? InvokeMethod(string methodName, params object[] args)
+        {
+            // Special handling for base IModel methods
+            switch (methodName)
+            {
+                case "browse":
+                    // Convert args to list of IDs
+                    var ids = ExtractIds(args);
+                    return new RecordSetWrapper(_env, _modelName, ids);
+
+                case "create":
+                    // args[0] should be a dictionary of values
+                    if (args.Length > 0 && args[0] is IDictionary<string, object> vals)
+                    {
+                        return Create(vals);
+                    }
+                    throw new ArgumentException("create() requires a dictionary of values");
+
+                case "search":
+                    // args[0] should be the domain
+                    return Search(args.Length > 0 ? args[0] : new object[0]);
+
+                default:
+                    // Model-level methods operate on empty recordset
+                    return _env.InvokePipelineMethod(
+                        _modelName,
+                        methodName,
+                        Array.Empty<RecordId>(),
+                        args
+                    );
+            }
+        }
+
+        /// <summary>
+        /// Extract record IDs from arguments (handles single ID, list of IDs, etc.)
+        /// </summary>
+        private RecordId[] ExtractIds(object[] args)
+        {
+            var recordIds = new List<RecordId>();
+            foreach (var arg in args)
+            {
+                AddIdsRecursive(arg, recordIds);
+            }
+            return recordIds.ToArray();
+        }
+
+        /// <summary>
         /// Search and read in one call (placeholder).
         /// Python: env['res.partner'].search_read([...], ['name', 'email'])
         /// </summary>
@@ -340,6 +414,60 @@ namespace Odoo.Python
                 result.Add(record.Read(fields));
             }
             return result;
+        }
+
+        /// <summary>
+        /// Check if a method exists in the pipeline registry.
+        /// Used by Python __getattr__ to determine if a method call should be forwarded.
+        /// Also returns true for base IModel methods (write, read, unlink).
+        /// </summary>
+        public bool HasMethod(string methodName)
+        {
+            // Built-in IModel base methods are always available on recordsets
+            if (methodName == "write" || methodName == "read" || methodName == "unlink")
+                return true;
+
+            return _env.HasPipeline(_modelName, methodName);
+        }
+
+        /// <summary>
+        /// Invoke a pipeline method dynamically on this recordset.
+        /// Called from Python when accessing a method like records.action_verify()
+        /// </summary>
+        public object? InvokeMethod(string methodName)
+        {
+            return _env.InvokePipelineMethod(_modelName, methodName, _ids);
+        }
+
+        /// <summary>
+        /// Invoke a pipeline method dynamically with arguments on this recordset.
+        /// Called from Python when accessing methods like records.write({})
+        /// </summary>
+        public object? InvokeMethod(string methodName, params object[] args)
+        {
+            // Special handling for base IModel methods on recordsets
+            switch (methodName)
+            {
+                case "write":
+                    // args[0] should be a dictionary of values
+                    if (args.Length > 0 && args[0] is IDictionary<string, object> vals)
+                    {
+                        return Write(vals);
+                    }
+                    throw new ArgumentException("write() requires a dictionary of values");
+
+                case "read":
+                    // args[0] should be optional list of field names
+                    var fields =
+                        args.Length > 0
+                            ? (args[0] as System.Collections.IEnumerable)?.Cast<string>()
+                            : null;
+                    return Read(fields);
+
+                default:
+                    // Pipeline method on recordset
+                    return _env.InvokePipelineMethod(_modelName, methodName, _ids, args);
+            }
         }
 
         public override string ToString()

@@ -1,14 +1,62 @@
+using System.Collections.Generic;
 using Odoo.Core.Pipeline;
 
 namespace Odoo.Core
 {
     /// <summary>
-    /// Base implementations for ORM methods (write, create).
+    /// Base implementations for ORM methods (browse, write, create).
     /// Contains the single source of truth for these operations.
     /// Methods are registered in the pipeline system and can be overridden by addons.
     /// </summary>
     public static class BaseModel
     {
+        /// <summary>
+        /// Base browse implementation - returns records by IDs.
+        /// Registered as the base handler in the "browse" pipeline.
+        /// <para>
+        /// This method:
+        /// 1. Gets the model token from the model name
+        /// 2. Creates a RecordSetWrapper containing the specified IDs
+        /// </para>
+        /// </summary>
+        /// <param name="env">The environment</param>
+        /// <param name="modelName">The model name (e.g., "res.partner")</param>
+        /// <param name="ids">The record IDs to browse</param>
+        /// <returns>RecordSetWrapper for the specified IDs</returns>
+        [OdooLogic("*", "browse")]
+        public static object Browse_Base(
+            OdooEnvironment env,
+            string modelName,
+            IEnumerable<long> ids
+        )
+        {
+            var recordIds = new List<RecordId>();
+            foreach (var id in ids)
+            {
+                recordIds.Add(new RecordId((int)id));
+            }
+
+            // Return a simple object containing the IDs for Python to wrap
+            return new BrowseResult(env, modelName, recordIds.ToArray());
+        }
+
+        /// <summary>
+        /// Result type for browse operation, used as an intermediate result.
+        /// </summary>
+        public class BrowseResult
+        {
+            public OdooEnvironment Env { get; }
+            public string ModelName { get; }
+            public RecordId[] Ids { get; }
+
+            public BrowseResult(OdooEnvironment env, string modelName, RecordId[] ids)
+            {
+                Env = env;
+                ModelName = modelName;
+                Ids = ids;
+            }
+        }
+
         /// <summary>
         /// Base write implementation - replaces per-model generated Write methods.
         /// Registered as the base handler in the "write" pipeline.
